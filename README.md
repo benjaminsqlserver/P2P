@@ -69,6 +69,10 @@ dotnet run --project src/P2P.Web
 ## Notes on differences from the book text
 
 - **Radzen.Blazor** is pinned to `7.4.3`. The book lists `7.5.7`, which was never published to NuGet.
+- The **Microsoft.AspNetCore.Components.\*** packages are on `10.0.13` instead of the book's `10.0.0`,
+  and **System.Security.Cryptography.Pkcs** (pulled in by Microsoft.Data.SqlClient) is pinned to
+  `9.0.21`. Both fix known security vulnerabilities that NuGet reports as errors under
+  warnings-as-errors.
 - The Blazor template nests the server and client projects; they have been moved so both sit directly under `src/`.
 - `P2P.Domain.csproj` suppresses analyser rules CA1716 (`Error` matches a VB keyword) and
   CA1711 (`MatchException` ends in "Exception" but is an entity). Both names come from the book,
