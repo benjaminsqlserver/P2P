@@ -1,0 +1,118 @@
+@page "/admin/audit"
+@attribute [Authorize(Roles = "Auditor,ProcurementAdministrator")]
+@inject IAuditApi AuditApi
+
+<PageTitle>Audit trail</PageTitle>
+
+<RadzenText TextStyle="TextStyle.H4" Class="rz-mb-4">Audit trail</RadzenText>
+
+<RadzenDataGrid @ref="_grid"
+                TItem="AuditEntryDto"
+                Data="@_entries"
+                Count="@_totalCount"
+                LoadData="@LoadDataAsync"
+                IsLoading="@_isLoading"
+                AllowPaging="true" PageSize="50"
+                AllowSorting="true"
+                ExpandMode="DataGridExpandMode.Multiple"
+                GridLines="DataGridGridLines.Horizontal">
+
+    <Template Context="entry">
+        <RadzenCard Class="rz-m-2">
+            <RadzenRow Gap="1rem">
+                <RadzenColumn Size="6">
+                    <RadzenText TextStyle="TextStyle.Subtitle2">Before</RadzenText>
+                    <pre style="white-space: pre-wrap; font-size: 0.8rem;">
+@FormatJson(entry.OldValues)</pre>
+                </RadzenColumn>
+                <RadzenColumn Size="6">
+                    <RadzenText TextStyle="TextStyle.Subtitle2">After</RadzenText>
+                    <pre style="white-space: pre-wrap; font-size: 0.8rem;">
+@FormatJson(entry.NewValues)</pre>
+                </RadzenColumn>
+            </RadzenRow>
+        </RadzenCard>
+    </Template>
+
+    <Columns>
+        <RadzenDataGridColumn TItem="AuditEntryDto" Property="OccurredAtUtc"
+                              Title="When" Width="190px"
+                              FormatString="{0:d MMM yyyy HH:mm:ss}"
+                              SortOrder="SortOrder.Descending" />
+        <RadzenDataGridColumn TItem="AuditEntryDto" Property="UserName"
+                              Title="Who" Width="200px" />
+        <RadzenDataGridColumn TItem="AuditEntryDto" Property="TableName"
+                              Title="Entity" Width="200px" />
+        <RadzenDataGridColumn TItem="AuditEntryDto" Property="Action"
+                              Title="Action" Width="120px">
+            <Template Context="entry">
+                <RadzenBadge IsPill="true"
+                             BadgeStyle="@(entry.Action == "Deleted"
+                                           ? BadgeStyle.Danger
+                                           : entry.Action == "Added"
+                                             ? BadgeStyle.Success
+                                             : BadgeStyle.Info)"
+                             Text="@entry.Action" />
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="AuditEntryDto" Property="ChangedColumns"
+                              Title="Changed fields" Sortable="false" />
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    private RadzenDataGrid<AuditEntryDto>? _grid;
+    private IReadOnlyList<AuditEntryDto>? _entries;
+    private int _totalCount;
+    private bool _isLoading;
+
+    private async Task LoadDataAsync(LoadDataArgs args)
+    {
+        _isLoading = true;
+
+        try
+        {
+            var page = await AuditApi.GetEntriesAsync(new GridQuery
+            {
+                Skip = args.Skip ?? 0,
+                Top = args.Top ?? 50,
+                OrderBy = args.Sorts?.FirstOrDefault()?.Property,
+                Descending = args.Sorts?.FirstOrDefault()?.SortOrder
+                             == SortOrder.Descending
+            });
+
+            _entries = page.Items;
+            _totalCount = page.TotalCount;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    // Relaxed escaping keeps apostrophes and non-ASCII readable; the text is
+    // HTML-encoded by Razor when rendered.
+    private static readonly System.Text.Json.JsonSerializerOptions IndentedJson = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    private static string FormatJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return "—";
+        }
+
+        try
+        {
+            return System.Text.Json.Nodes.JsonNode.Parse(json)?.ToJsonString(IndentedJson)
+                   ?? json;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return json;
+        }
+    }
+}

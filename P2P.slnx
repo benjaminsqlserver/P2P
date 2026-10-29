@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/P2P.Application/P2P.Application.csproj" />
+    <Project Path="src/P2P.Contracts/P2P.Contracts.csproj" />
+    <Project Path="src/P2P.Domain/P2P.Domain.csproj" />
+    <Project Path="src/P2P.Infrastructure/P2P.Infrastructure.csproj" />
+    <Project Path="src/P2P.Web.Client/P2P.Web.Client.csproj" />
+    <Project Path="src/P2P.Web/P2P.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/P2P.Application.Tests/P2P.Application.Tests.csproj" />
+    <Project Path="tests/P2P.Domain.Tests/P2P.Domain.Tests.csproj" />
+    <Project Path="tests/P2P.Web.Tests/P2P.Web.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,258 @@
+@page "/vendors/{VendorId:guid}"
+@attribute [Authorize]
+@inject IVendorApi VendorApi
+@inject DialogService DialogService
+@inject NotificationService Notifications
+
+<PageTitle>@(_vendor?.LegalName ?? "Vendor")</PageTitle>
+
+@if (_isLoading)
+{
+    <RadzenStack Gap="1rem">
+        <RadzenSkeleton Height="2rem" Width="40%" />
+        <RadzenSkeleton Height="12rem" />
+    </RadzenStack>
+}
+else if (_vendor is null)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+        That vendor could not be found.
+    </RadzenAlert>
+}
+else
+{
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 AlignItems="AlignItems.Center"
+                 JustifyContent="JustifyContent.SpaceBetween"
+                 Class="rz-mb-4">
+        <RadzenStack Gap="0.25rem">
+            <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-0">
+                @_vendor.LegalName
+            </RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
+                    @_vendor.Code
+                </RadzenText>
+                <RadzenBadge BadgeStyle="@BadgeStyleFor(_vendor.Status)"
+                             Text="@_vendor.Status.ToString()" IsPill="true" />
+            </RadzenStack>
+        </RadzenStack>
+
+        <AuthorizeView Policy="@Policies.CanManageVendors">
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                <RadzenButton Text="Add bank account"
+                              Icon="account_balance"
+                              ButtonStyle="ButtonStyle.Secondary"
+                              Click="@OpenAddBankAccountAsync" />
+
+                @if (_vendor.Status != VendorStatusDto.Active)
+                {
+                    <RadzenButton Text="Activate"
+                                  Icon="check_circle"
+                                  ButtonStyle="ButtonStyle.Success"
+                                  Disabled="@(_vendor.BankAccounts.Count == 0)"
+                                  Click="@ActivateAsync" />
+                }
+                else
+                {
+                    <RadzenButton Text="Place on hold"
+                                  Icon="pause_circle"
+                                  ButtonStyle="ButtonStyle.Warning"
+                                  Click="@PlaceOnHoldAsync" />
+                }
+            </RadzenStack>
+        </AuthorizeView>
+    </RadzenStack>
+
+    @if (_vendor.Status != VendorStatusDto.Active
+         && _vendor.BankAccounts.Count == 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info"
+                     Variant="Variant.Flat"
+                     Shade="Shade.Lighter"
+                     AllowClose="false"
+                     Class="rz-mb-3">
+            This vendor needs at least one bank account before it can be activated.
+        </RadzenAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_vendor.HoldReason))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning"
+                     Variant="Variant.Flat"
+                     AllowClose="false"
+                     Class="rz-mb-3">
+            <strong>On hold:</strong> @_vendor.HoldReason
+        </RadzenAlert>
+    }
+
+    <RadzenTabs RenderMode="TabRenderMode.Client">
+        <Tabs>
+            <RadzenTabsItem Text="Details" Icon="info">
+                <RadzenCard>
+                    <RadzenRow Gap="2rem">
+                        <RadzenColumn Size="6">
+                            <RadzenStack Gap="0.75rem">
+                                <LabelledValue Label="Legal name"
+                                               Value="@_vendor.LegalName" />
+                                <LabelledValue Label="Trading name"
+                                               Value="@(_vendor.TradingName ?? "—")" />
+                                <LabelledValue Label="Tax identifier"
+                                               Value="@(_vendor.TaxIdentifier ?? "—")" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="6">
+                            <RadzenStack Gap="0.75rem">
+                                <LabelledValue Label="Default currency"
+                                               Value="@_vendor.DefaultCurrency" />
+                                <LabelledValue Label="Payment terms"
+                                    Value="@($"{_vendor.PaymentTermsDays} days")" />
+                                <LabelledValue Label="Remit-to"
+                                               Value="@SingleLineAddress()" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                    </RadzenRow>
+                </RadzenCard>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Bank accounts" Icon="account_balance">
+                <RadzenDataGrid TItem="BankAccountDto"
+                                Data="@_vendor.BankAccounts"
+                                AllowPaging="false"
+                                EmptyText="No bank accounts recorded.">
+                    <Columns>
+                        <RadzenDataGridColumn TItem="BankAccountDto"
+                                              Property="BankName" Title="Bank" />
+                        <RadzenDataGridColumn TItem="BankAccountDto"
+                                              Property="AccountName" Title="Account name" />
+                        <RadzenDataGridColumn TItem="BankAccountDto"
+                                              Property="AccountNumber" Title="Number" />
+                        <RadzenDataGridColumn TItem="BankAccountDto"
+                                              Property="SortCodeOrSwift"
+                                              Title="Sort / SWIFT" />
+                        <RadzenDataGridColumn TItem="BankAccountDto"
+                                              Property="Currency" Title="Currency"
+                                              Width="110px" />
+                        <RadzenDataGridColumn TItem="BankAccountDto"
+                                              Title="Primary" Width="110px"
+                                              TextAlign="TextAlign.Center">
+                            <Template Context="account">
+                                @if (account.IsPrimary)
+                                {
+                                    <RadzenIcon Icon="star" Style="color: var(--rz-warning);" />
+                                }
+                            </Template>
+                        </RadzenDataGridColumn>
+                    </Columns>
+                </RadzenDataGrid>
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+}
+
+@code {
+    [Parameter] public Guid VendorId { get; set; }
+
+    private VendorDetailDto? _vendor;
+    private bool _isLoading = true;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            _vendor = await VendorApi.GetByIdAsync(VendorId);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string SingleLineAddress()
+    {
+        if (_vendor is null)
+        {
+            return "—";
+        }
+
+        var address = _vendor.RemitToAddress;
+
+        var parts = new[]
+        {
+            address.Line1, address.Line2, address.City,
+            address.StateOrProvince, address.PostalCode, address.CountryCode
+        };
+
+        return string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+    }
+
+    private async Task ActivateAsync()
+    {
+        var result = await VendorApi.ActivateAsync(VendorId);
+        await ReportAsync(result, "Vendor activated");
+    }
+
+    private async Task PlaceOnHoldAsync()
+    {
+        var reason = await DialogService.OpenAsync<ReasonDialog>(
+            "Place vendor on hold",
+            new Dictionary<string, object>
+            {
+                ["Prompt"] = "Why is this vendor being placed on hold?"
+            },
+            new DialogOptions { Width = "520px" });
+
+        if (reason is not string text || string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var result = await VendorApi.PlaceOnHoldAsync(VendorId, text);
+        await ReportAsync(result, "Vendor placed on hold");
+    }
+
+    private async Task OpenAddBankAccountAsync()
+    {
+        var added = await DialogService.OpenAsync<BankAccountDialog>(
+            "Add bank account",
+            new Dictionary<string, object> { ["VendorId"] = VendorId },
+            new DialogOptions { Width = "620px" });
+
+        if (added is true)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task ReportAsync(OperationResult result, string successSummary)
+    {
+        Notifications.Notify(new NotificationMessage
+        {
+            Severity = result.Succeeded
+                ? NotificationSeverity.Success
+                : NotificationSeverity.Error,
+            Summary = result.Succeeded ? successSummary : "Action failed",
+            Detail = result.ErrorMessage,
+            Duration = result.Succeeded ? 4000 : 8000
+        });
+
+        if (result.Succeeded)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private static BadgeStyle BadgeStyleFor(VendorStatusDto status) => status switch
+    {
+        VendorStatusDto.Active => BadgeStyle.Success,
+        VendorStatusDto.Draft => BadgeStyle.Light,
+        VendorStatusDto.OnHold => BadgeStyle.Warning,
+        VendorStatusDto.Blocked => BadgeStyle.Danger,
+        _ => BadgeStyle.Light
+    };
+}

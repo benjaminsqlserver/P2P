@@ -1,0 +1,565 @@
+@page "/requisitions/new"
+@using P2P.Contracts.Common
+@attribute [Authorize]
+@inject IRequisitionApi RequisitionApi
+@inject IVendorApi VendorApi
+@inject IOrganisationApi OrganisationApi
+@inject NotificationService Notifications
+@inject NavigationManager Navigation
+
+<PageTitle>New requisition</PageTitle>
+
+<RadzenText TextStyle="TextStyle.H4" Class="rz-mb-4">New requisition</RadzenText>
+
+<RadzenSteps @bind-SelectedIndex="_step" ShowStepsButtons="false">
+    <Steps>
+
+        <!-- ─────────────────────── Step 1: header ─────────────────────── -->
+        <RadzenStepsItem Text="Details">
+            <RadzenCard>
+                <RadzenStack Gap="1rem">
+                    <RadzenRow Gap="1rem">
+                        <RadzenColumn Size="8">
+                            <RadzenFormField Text="What are you requesting?"
+                                             Style="width: 100%;">
+                                <RadzenTextBox @bind-Value="_title" MaxLength="200"
+                                    Placeholder="e.g. Laptops for the September intake" />
+                            </RadzenFormField>
+                        </RadzenColumn>
+
+                        <RadzenColumn Size="4">
+                            <RadzenFormField Text="Needed by" Style="width: 100%;">
+                                <RadzenDatePicker @bind-Value="_neededBy"
+                                                  DateFormat="d MMM yyyy"
+                                                  Min="DateTime.Today" />
+                            </RadzenFormField>
+                        </RadzenColumn>
+                    </RadzenRow>
+
+                    <RadzenRow Gap="1rem">
+                        <RadzenColumn Size="8">
+                            <RadzenFormField Text="Cost centre" Style="width: 100%;">
+                                <RadzenDropDown TValue="Guid?"
+                                                @bind-Value="_costCentreId"
+                                                Data="@_costCentres"
+                                                TextProperty="Display"
+                                                ValueProperty="Id"
+                                                AllowFiltering="true"
+                                                FilterCaseSensitivity=
+                                                  "FilterCaseSensitivity.CaseInsensitive"
+                                                Placeholder="Select a cost centre" />
+                            </RadzenFormField>
+                        </RadzenColumn>
+
+                        <RadzenColumn Size="4">
+                            <RadzenFormField Text="Currency" Style="width: 100%;">
+                                <RadzenDropDown @bind-Value="_currency"
+                                                Data="@_currencies"
+                                                Change="@OnCurrencyChanged" />
+                            </RadzenFormField>
+                        </RadzenColumn>
+                    </RadzenRow>
+
+                    <RadzenFormField Text="Business justification" Style="width: 100%;">
+                        <RadzenTextArea @bind-Value="_justification" Rows="4"
+                                        MaxLength="2000"
+                            Placeholder="Why is this purchase necessary now?" />
+                    </RadzenFormField>
+                </RadzenStack>
+            </RadzenCard>
+
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         JustifyContent="JustifyContent.End" Class="rz-mt-3">
+                <RadzenButton Text="Next: add lines"
+                              Icon="arrow_forward"
+                              IconPosition="IconPosition.Right"
+                              Disabled="@(!HeaderIsComplete)"
+                              Click="@(() => _step = 1)" />
+            </RadzenStack>
+        </RadzenStepsItem>
+
+        <!-- ─────────────────────── Step 2: lines ──────────────────────── -->
+        <RadzenStepsItem Text="Lines" Disabled="@(!HeaderIsComplete)">
+            <RadzenCard>
+                <RadzenStack Orientation="Orientation.Horizontal"
+                             JustifyContent="JustifyContent.SpaceBetween"
+                             AlignItems="AlignItems.Center"
+                             Class="rz-mb-3">
+                    <RadzenText TextStyle="TextStyle.H6" Class="rz-mb-0">
+                        Requisition lines
+                    </RadzenText>
+                    <RadzenButton Text="Add line" Icon="add"
+                                  Size="ButtonSize.Small"
+                                  Click="@AddLineAsync" />
+                </RadzenStack>
+
+                <RadzenDataGrid @ref="_linesGrid"
+                                TItem="LineModel"
+                                Data="@_lines"
+                                EditMode="DataGridEditMode.Single"
+                                RowUpdate="@OnLineUpdated"
+                                RowCreate="@OnLineCreated"
+                                AllowPaging="false"
+                                AllowSorting="false"
+                                EmptyText="No lines yet — add at least one."
+                                GridLines="DataGridGridLines.Horizontal">
+                    <Columns>
+                        <RadzenDataGridColumn TItem="LineModel" Title="#" Width="50px">
+                            <Template Context="line">
+                                @(_lines.IndexOf(line) + 1)
+                            </Template>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel"
+                                              Property="Description"
+                                              Title="Description"
+                                              MinWidth="240px">
+                            <EditTemplate Context="line">
+                                <RadzenTextBox @bind-Value="line.Description"
+                                               Style="width: 100%;" MaxLength="500" />
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel"
+                                              Property="ItemCode"
+                                              Title="Item code" Width="130px">
+                            <EditTemplate Context="line">
+                                <RadzenTextBox @bind-Value="line.ItemCode"
+                                               Style="width: 100%;" MaxLength="50" />
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel"
+                                              Property="Quantity"
+                                              Title="Qty" Width="110px"
+                                              TextAlign="TextAlign.Right">
+                            <Template Context="line">@line.Quantity.ToString("N2")</Template>
+                            <EditTemplate Context="line">
+                                <RadzenNumeric @bind-Value="line.Quantity"
+                                               Min="0.01m" Style="width: 100%;" />
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel"
+                                              Property="UnitOfMeasure"
+                                              Title="UoM" Width="90px">
+                            <EditTemplate Context="line">
+                                <RadzenDropDown @bind-Value="line.UnitOfMeasure"
+                                                Data="@_unitsOfMeasure"
+                                                Style="width: 100%;" />
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel"
+                                              Property="UnitPrice"
+                                              Title="Unit price" Width="150px"
+                                              TextAlign="TextAlign.Right">
+                            <Template Context="line">
+                                @FormatMoney(line.UnitPrice)
+                            </Template>
+                            <EditTemplate Context="line">
+                                <RadzenNumeric @bind-Value="line.UnitPrice"
+                                               Min="0m" Style="width: 100%;" />
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel"
+                                              Title="Suggested vendor" Width="240px">
+                            <Template Context="line">
+                                @(line.SuggestedVendorName ?? "—")
+                            </Template>
+                            <EditTemplate Context="line">
+                                <RadzenDropDownDataGrid TValue="Guid?"
+                                    @bind-Value="line.SuggestedVendorId"
+                                    Data="@_vendorOptions"
+                                    LoadData="@LoadVendorOptionsAsync"
+                                    TextProperty="LegalName"
+                                    ValueProperty="Id"
+                                    AllowFiltering="true"
+                                    AllowClear="true"
+                                    FilterDelay="400"
+                                    Change="@(v => OnVendorSelected(line, v))"
+                                    Style="width: 100%;"
+                                    Placeholder="Search vendors…">
+                                    <Columns>
+                                        <RadzenDropDownDataGridColumn
+                                            Property="Code" Title="Code" Width="90px" />
+                                        <RadzenDropDownDataGridColumn
+                                            Property="LegalName" Title="Vendor" />
+                                        <RadzenDropDownDataGridColumn
+                                            Property="DefaultCurrency"
+                                            Title="Ccy" Width="70px" />
+                                    </Columns>
+                                </RadzenDropDownDataGrid>
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel"
+                                              Title="Line total" Width="160px"
+                                              TextAlign="TextAlign.Right">
+                            <Template Context="line">
+                                <strong>@FormatMoney(line.LineTotal)</strong>
+                            </Template>
+                            <EditTemplate Context="line">
+                                <RadzenText TextStyle="TextStyle.Body2"
+                                            Class="rz-mb-0 rz-text-align-right">
+                                    @FormatMoney(line.LineTotal)
+                                </RadzenText>
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+
+                        <RadzenDataGridColumn TItem="LineModel" Title=""
+                                              Width="110px"
+                                              TextAlign="TextAlign.Center">
+                            <Template Context="line">
+                                <RadzenButton Icon="edit" Size="ButtonSize.Small"
+                                              Variant="Variant.Text"
+                                              ButtonStyle="ButtonStyle.Light"
+                                              Click="@(() => EditLineAsync(line))" />
+                                <RadzenButton Icon="delete" Size="ButtonSize.Small"
+                                              Variant="Variant.Text"
+                                              ButtonStyle="ButtonStyle.Danger"
+                                              Click="@(() => RemoveLine(line))" />
+                            </Template>
+                            <EditTemplate Context="line">
+                                <RadzenButton Icon="check" Size="ButtonSize.Small"
+                                              Variant="Variant.Text"
+                                              ButtonStyle="ButtonStyle.Success"
+                                              Click="@(() => SaveLineAsync(line))" />
+                                <RadzenButton Icon="close" Size="ButtonSize.Small"
+                                              Variant="Variant.Text"
+                                              ButtonStyle="ButtonStyle.Light"
+                                              Click="@(() => CancelLineEdit(line))" />
+                            </EditTemplate>
+                        </RadzenDataGridColumn>
+                    </Columns>
+                </RadzenDataGrid>
+
+                <RadzenStack Orientation="Orientation.Horizontal"
+                             JustifyContent="JustifyContent.End"
+                             AlignItems="AlignItems.Center"
+                             Gap="1rem"
+                             Class="rz-mt-3">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-mb-0">
+                        Requisition total
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.H5" Class="rz-mb-0">
+                        @FormatMoney(RequisitionTotal)
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         JustifyContent="JustifyContent.SpaceBetween"
+                         Class="rz-mt-3">
+                <RadzenButton Text="Back" Icon="arrow_back"
+                              ButtonStyle="ButtonStyle.Light"
+                              Click="@(() => _step = 0)" />
+                <RadzenButton Text="Next: review"
+                              Icon="arrow_forward"
+                              IconPosition="IconPosition.Right"
+                              Disabled="@(_lines.Count == 0)"
+                              Click="@(() => _step = 2)" />
+            </RadzenStack>
+        </RadzenStepsItem>
+
+        <!-- ─────────────────────── Step 3: review ─────────────────────── -->
+        <RadzenStepsItem Text="Review &amp; submit"
+                         Disabled="@(_lines.Count == 0)">
+            <RadzenCard>
+                <RadzenStack Gap="1rem">
+                    <RadzenRow Gap="2rem">
+                        <RadzenColumn Size="6">
+                            <LabelledValue Label="Title" Value="@(_title ?? "—")" />
+                        </RadzenColumn>
+                        <RadzenColumn Size="3">
+                            <LabelledValue Label="Cost centre"
+                                           Value="@SelectedCostCentreDisplay()" />
+                        </RadzenColumn>
+                        <RadzenColumn Size="3">
+                            <LabelledValue Label="Needed by"
+                                Value="@(_neededBy?.ToString("d MMM yyyy") ?? "—")" />
+                        </RadzenColumn>
+                    </RadzenRow>
+
+                    <RadzenDataGrid TItem="LineModel" Data="@_lines"
+                                    AllowPaging="false" AllowSorting="false">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="LineModel"
+                                                  Property="Description"
+                                                  Title="Description" />
+                            <RadzenDataGridColumn TItem="LineModel"
+                                                  Property="Quantity" Title="Qty"
+                                                  Width="100px"
+                                                  TextAlign="TextAlign.Right" />
+                            <RadzenDataGridColumn TItem="LineModel"
+                                                  Property="UnitOfMeasure"
+                                                  Title="UoM" Width="80px" />
+                            <RadzenDataGridColumn TItem="LineModel"
+                                                  Title="Unit price" Width="150px"
+                                                  TextAlign="TextAlign.Right">
+                                <Template Context="line">
+                                    @FormatMoney(line.UnitPrice)
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="LineModel"
+                                                  Title="Line total" Width="160px"
+                                                  TextAlign="TextAlign.Right">
+                                <Template Context="line">
+                                    @FormatMoney(line.LineTotal)
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    <RadzenAlert AlertStyle="AlertStyle.Info"
+                                 Variant="Variant.Flat"
+                                 Shade="Shade.Lighter"
+                                 AllowClose="false">
+                        Submitting sends this requisition for approval. The route is
+                        determined automatically from your organisation's approval
+                        policy and the total value of
+                        <strong>@FormatMoney(RequisitionTotal)</strong>.
+                    </RadzenAlert>
+
+                    @if (_serverError is not null)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Danger"
+                                     Variant="Variant.Flat" AllowClose="false">
+                            @_serverError
+                        </RadzenAlert>
+                    }
+                </RadzenStack>
+            </RadzenCard>
+
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         JustifyContent="JustifyContent.SpaceBetween"
+                         Class="rz-mt-3">
+                <RadzenButton Text="Back" Icon="arrow_back"
+                              ButtonStyle="ButtonStyle.Light"
+                              Click="@(() => _step = 1)" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Save as draft"
+                                  Icon="save"
+                                  ButtonStyle="ButtonStyle.Secondary"
+                                  IsBusy="@_isSaving"
+                                  Click="@(() => SaveAsync(submit: false))" />
+                    <RadzenButton Text="Submit for approval"
+                                  Icon="send"
+                                  ButtonStyle="ButtonStyle.Primary"
+                                  IsBusy="@_isSaving"
+                                  BusyText="Submitting…"
+                                  Click="@(() => SaveAsync(submit: true))" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenStepsItem>
+    </Steps>
+</RadzenSteps>
+
+@code {
+    private int _step;
+    private bool _isSaving;
+    private string? _serverError;
+
+    private string? _title;
+    private string? _justification;
+    private DateTime? _neededBy = DateTime.Today.AddDays(14);
+    private Guid? _costCentreId;
+    private string _currency = "NGN";
+
+    private readonly List<LineModel> _lines = [];
+    private RadzenDataGrid<LineModel>? _linesGrid;
+
+    private IReadOnlyList<CostCentreLookupDto> _costCentres = [];
+    private IReadOnlyList<VendorLookupDto> _vendorOptions = [];
+
+    private readonly string[] _currencies = ["NGN", "USD", "GBP", "EUR"];
+
+    private readonly string[] _unitsOfMeasure =
+        ["EA", "BOX", "PK", "KG", "L", "M", "HR", "DAY", "MTH"];
+
+    private bool HeaderIsComplete =>
+        !string.IsNullOrWhiteSpace(_title)
+        && _costCentreId.HasValue
+        && _neededBy.HasValue;
+
+    private decimal RequisitionTotal => _lines.Sum(l => l.LineTotal);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _costCentres = await OrganisationApi.GetCostCentreLookupAsync();
+        _vendorOptions = await VendorApi.SearchLookupAsync(null);
+    }
+
+    private async Task LoadVendorOptionsAsync(LoadDataArgs args)
+    {
+        _vendorOptions = await VendorApi.SearchLookupAsync(args.Filter);
+    }
+
+    private void OnVendorSelected(LineModel line, object? value)
+    {
+        var id = value as Guid?;
+
+        line.SuggestedVendorName = id.HasValue
+            ? _vendorOptions.FirstOrDefault(v => v.Id == id)?.LegalName
+            : null;
+    }
+
+    private void OnCurrencyChanged(object value) => StateHasChanged();
+
+    private async Task AddLineAsync()
+    {
+        var line = new LineModel { UnitOfMeasure = "EA", Quantity = 1m };
+        _lines.Add(line);
+
+        if (_linesGrid is not null)
+        {
+            // The grid does not observe the list; Reload makes it re-read
+            // Data so the new row exists before it is put into edit mode.
+            await _linesGrid.Reload();
+            await _linesGrid.EditRow(line);
+        }
+    }
+
+    private async Task EditLineAsync(LineModel line)
+    {
+        if (_linesGrid is not null)
+        {
+            await _linesGrid.EditRow(line);
+        }
+    }
+
+    private async Task SaveLineAsync(LineModel line)
+    {
+        if (_linesGrid is not null)
+        {
+            await _linesGrid.UpdateRow(line);
+        }
+    }
+
+    private async Task CancelLineEdit(LineModel line)
+    {
+        _linesGrid?.CancelEditRow(line);
+
+        if (string.IsNullOrWhiteSpace(line.Description))
+        {
+            _lines.Remove(line);
+
+            if (_linesGrid is not null)
+            {
+                await _linesGrid.Reload();
+            }
+        }
+    }
+
+    private void OnLineCreated(LineModel line) { }
+
+    private void OnLineUpdated(LineModel line) => StateHasChanged();
+
+    private async Task RemoveLine(LineModel line)
+    {
+        _lines.Remove(line);
+
+        if (_linesGrid is not null)
+        {
+            await _linesGrid.Reload();
+        }
+    }
+
+    private async Task SaveAsync(bool submit)
+    {
+        _isSaving = true;
+        _serverError = null;
+
+        try
+        {
+            var request = new CreateRequisitionRequest
+            {
+                CostCentreId = _costCentreId!.Value,
+                Title = _title!,
+                Justification = _justification,
+                NeededBy = DateOnly.FromDateTime(_neededBy!.Value),
+                Currency = _currency,
+                Lines = _lines.Select(l => new RequisitionLineRequest
+                {
+                    ItemCode = l.ItemCode,
+                    Description = l.Description!,
+                    Quantity = l.Quantity,
+                    UnitOfMeasure = l.UnitOfMeasure,
+                    UnitPrice = l.UnitPrice,
+                    SuggestedVendorId = l.SuggestedVendorId
+                }).ToList()
+            };
+
+            var created = await RequisitionApi.CreateAsync(request);
+
+            if (!created.Succeeded)
+            {
+                _serverError = created.ErrorMessage;
+                return;
+            }
+
+            if (submit)
+            {
+                var submitted = await RequisitionApi.SubmitAsync(created.Value);
+
+                if (!submitted.Succeeded)
+                {
+                    // A notification, not _serverError: this page is about to
+                    // navigate away, and the notification host lives in the
+                    // layout, so the message survives the navigation.
+                    Notifications.Notify(new NotificationMessage
+                    {
+                        Severity = NotificationSeverity.Warning,
+                        Summary = "Saved as draft, not submitted",
+                        Detail = "The requisition was saved as a draft but could not "
+                               + $"be submitted: {submitted.ErrorMessage}",
+                        Duration = 12000
+                    });
+
+                    Navigation.NavigateTo($"requisitions/{created.Value}");
+                    return;
+                }
+            }
+
+            Notifications.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = submit ? "Submitted for approval" : "Saved as draft",
+                Duration = 5000
+            });
+
+            Navigation.NavigateTo($"requisitions/{created.Value}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private string SelectedCostCentreDisplay() =>
+        _costCentres.FirstOrDefault(c => c.Id == _costCentreId)?.Display ?? "—";
+
+    private string FormatMoney(decimal amount) => _currency switch
+    {
+        "NGN" => $"₦{amount:N2}",
+        "GBP" => $"£{amount:N2}",
+        "EUR" => $"€{amount:N2}",
+        "USD" => $"${amount:N2}",
+        _ => $"{_currency} {amount:N2}"
+    };
+
+    private sealed class LineModel
+    {
+        public string? ItemCode { get; set; }
+        public string? Description { get; set; }
+        public decimal Quantity { get; set; } = 1m;
+        public string UnitOfMeasure { get; set; } = "EA";
+        public decimal UnitPrice { get; set; }
+        public Guid? SuggestedVendorId { get; set; }
+        public string? SuggestedVendorName { get; set; }
+
+        public decimal LineTotal => Quantity * UnitPrice;
+    }
+}

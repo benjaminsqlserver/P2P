@@ -1,0 +1,12 @@
+<RadzenStack Gap="0.125rem">
+    <RadzenText TextStyle="TextStyle.Caption" Class="rz-mb-0"
+                Style="color: var(--rz-text-secondary-color);">
+        @Label
+    </RadzenText>
+    <RadzenText TextStyle="TextStyle.Body1" Class="rz-mb-0">@Value</RadzenText>
+</RadzenStack>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+}

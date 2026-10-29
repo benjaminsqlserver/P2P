@@ -1,0 +1,255 @@
+@page "/receipts/new"
+@attribute [Authorize(Policy = Policies.CanRecordReceipts)]
+@inject IPurchaseOrderApi PurchaseOrderApi
+@inject IGoodsReceiptApi ReceiptApi
+@inject NotificationService Notifications
+@inject NavigationManager Navigation
+
+<PageTitle>Record a goods receipt</PageTitle>
+
+<RadzenText TextStyle="TextStyle.H4" Class="rz-mb-4">Record a goods receipt</RadzenText>
+
+<RadzenCard Class="rz-mb-3">
+    <RadzenRow Gap="1rem">
+        <RadzenColumn Size="6">
+            <RadzenFormField Text="Purchase order" Style="width: 100%;">
+                <RadzenDropDownDataGrid TValue="Guid?"
+                                        @bind-Value="_purchaseOrderId"
+                                        Data="@_openOrders"
+                                        LoadData="@LoadOpenOrdersAsync"
+                                        TextProperty="Number"
+                                        ValueProperty="Id"
+                                        AllowFiltering="true"
+                                        FilterDelay="400"
+                                        Change="@OnOrderSelectedAsync"
+                                        Placeholder="Search open purchase orders…"
+                                        Style="width: 100%;">
+                    <Columns>
+                        <RadzenDropDownDataGridColumn Property="Number"
+                                                      Title="PO" Width="160px" />
+                        <RadzenDropDownDataGridColumn Property="VendorName"
+                                                      Title="Vendor" />
+                        <RadzenDropDownDataGridColumn Property="ExpectedDeliveryDate"
+                                                      Title="Expected" Width="140px"
+                                                      FormatString="{0:d MMM yyyy}" />
+                    </Columns>
+                </RadzenDropDownDataGrid>
+            </RadzenFormField>
+        </RadzenColumn>
+
+        <RadzenColumn Size="2">
+            <RadzenFormField Text="Received on" Style="width: 100%;">
+                <RadzenDatePicker @bind-Value="_receivedOn"
+                                  DateFormat="d MMM yyyy"
+                                  Max="DateTime.Today" />
+            </RadzenFormField>
+        </RadzenColumn>
+
+        <RadzenColumn Size="2">
+            <RadzenFormField Text="Delivery note" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="_deliveryNote" MaxLength="50" />
+            </RadzenFormField>
+        </RadzenColumn>
+
+        <RadzenColumn Size="2">
+            <RadzenFormField Text="Carrier" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="_carrier" MaxLength="100" />
+            </RadzenFormField>
+        </RadzenColumn>
+    </RadzenRow>
+</RadzenCard>
+
+@if (_order is not null)
+{
+    <RadzenCard>
+        <RadzenDataGrid TItem="ReceiptLineModel" Data="@_receiptLines"
+                        AllowPaging="false" AllowSorting="false"
+                        GridLines="DataGridGridLines.Horizontal">
+            <Columns>
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Property="LineNumber" Title="#" Width="55px" />
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Property="Description" Title="Description"
+                                      MinWidth="200px" />
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Property="QuantityOrdered" Title="Ordered"
+                                      Width="110px" FormatString="{0:N2}"
+                                      TextAlign="TextAlign.Right" />
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Property="QuantityAlreadyReceived"
+                                      Title="Received so far" Width="140px"
+                                      FormatString="{0:N2}"
+                                      TextAlign="TextAlign.Right" />
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Property="QuantityOutstanding"
+                                      Title="Outstanding" Width="130px"
+                                      TextAlign="TextAlign.Right">
+                    <Template Context="line">
+                        <strong>@line.QuantityOutstanding.ToString("N2")</strong>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Title="Accepted now" Width="150px">
+                    <Template Context="line">
+                        <RadzenNumeric @bind-Value="line.QuantityAccepted"
+                                       Min="0m" Max="@line.QuantityOutstanding"
+                                       Style="width: 100%;" />
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Title="Rejected" Width="130px">
+                    <Template Context="line">
+                        <RadzenNumeric @bind-Value="line.QuantityRejected"
+                                       Min="0m" Style="width: 100%;" />
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ReceiptLineModel"
+                                      Title="Rejection reason" Width="240px">
+                    <Template Context="line">
+                        <RadzenTextBox @bind-Value="line.RejectionReason"
+                                       Disabled="@(line.QuantityRejected <= 0)"
+                                       Style="width: 100%;"
+                                       Placeholder="Required if rejecting" />
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+
+        <RadzenStack Orientation="Orientation.Horizontal"
+                     JustifyContent="JustifyContent.SpaceBetween"
+                     Class="rz-mt-3">
+            <RadzenButton Text="Receive everything outstanding"
+                          Icon="done_all"
+                          ButtonStyle="ButtonStyle.Secondary"
+                          Variant="Variant.Flat"
+                          Click="@ReceiveAll" />
+
+            <RadzenButton Text="Record receipt"
+                          Icon="save"
+                          ButtonStyle="ButtonStyle.Primary"
+                          Disabled="@(!HasSomethingToRecord)"
+                          IsBusy="@_isSaving"
+                          Click="@SaveAsync" />
+        </RadzenStack>
+    </RadzenCard>
+}
+
+@code {
+    private Guid? _purchaseOrderId;
+    private DateTime? _receivedOn = DateTime.Today;
+    private string? _deliveryNote;
+    private string? _carrier;
+    private bool _isSaving;
+
+    private IReadOnlyList<PurchaseOrderLookupDto> _openOrders = [];
+    private PurchaseOrderDetailDto? _order;
+    private List<ReceiptLineModel> _receiptLines = [];
+
+    private bool HasSomethingToRecord =>
+        _order is not null
+        && _receiptLines.Exists(l => l.QuantityAccepted > 0 || l.QuantityRejected > 0);
+
+    // Without this the picker opens empty: RadzenDropDownDataGrid only calls
+    // LoadData once the user types a filter, so preload the unfiltered list.
+    protected override async Task OnInitializedAsync() =>
+        _openOrders = await PurchaseOrderApi.SearchOpenAsync(null);
+
+    private async Task LoadOpenOrdersAsync(LoadDataArgs args) =>
+        _openOrders = await PurchaseOrderApi.SearchOpenAsync(args.Filter);
+
+    private async Task OnOrderSelectedAsync(object? value)
+    {
+        if (value is not Guid id)
+        {
+            _order = null;
+            _receiptLines = [];
+            return;
+        }
+
+        _order = await PurchaseOrderApi.GetByIdAsync(id);
+
+        _receiptLines = _order?.Lines
+            .Where(l => l.QuantityOrdered > l.QuantityReceived)
+            .Select(l => new ReceiptLineModel
+            {
+                PurchaseOrderLineId = l.Id,
+                LineNumber = l.LineNumber,
+                Description = l.Description,
+                QuantityOrdered = l.QuantityOrdered,
+                QuantityAlreadyReceived = l.QuantityReceived
+            })
+            .ToList() ?? [];
+    }
+
+    private void ReceiveAll()
+    {
+        foreach (var line in _receiptLines)
+        {
+            line.QuantityAccepted = line.QuantityOutstanding;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+
+        try
+        {
+            var request = new CreateGoodsReceiptRequest
+            {
+                PurchaseOrderId = _purchaseOrderId!.Value,
+                ReceivedOn = DateOnly.FromDateTime(_receivedOn!.Value),
+                DeliveryNoteReference = _deliveryNote,
+                Carrier = _carrier,
+                Lines = _receiptLines
+                    .Where(l => l.QuantityAccepted > 0 || l.QuantityRejected > 0)
+                    .Select(l => new GoodsReceiptLineRequest
+                    {
+                        PurchaseOrderLineId = l.PurchaseOrderLineId,
+                        QuantityAccepted = l.QuantityAccepted,
+                        QuantityRejected = l.QuantityRejected,
+                        RejectionReason = l.RejectionReason
+                    })
+                    .ToList()
+            };
+
+            var result = await ReceiptApi.CreateAsync(request);
+
+            Notifications.Notify(new NotificationMessage
+            {
+                Severity = result.Succeeded
+                    ? NotificationSeverity.Success
+                    : NotificationSeverity.Error,
+                Summary = result.Succeeded
+                    ? "Goods receipt recorded"
+                    : "Could not record the receipt",
+                Detail = result.ErrorMessage,
+                Duration = result.Succeeded ? 4000 : 8000
+            });
+
+            if (result.Succeeded)
+            {
+                Navigation.NavigateTo($"receipts/{result.Value}");
+            }
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private sealed class ReceiptLineModel
+    {
+        public Guid PurchaseOrderLineId { get; init; }
+        public int LineNumber { get; init; }
+        public string Description { get; init; } = string.Empty;
+        public decimal QuantityOrdered { get; init; }
+        public decimal QuantityAlreadyReceived { get; init; }
+        public decimal QuantityAccepted { get; set; }
+        public decimal QuantityRejected { get; set; }
+        public string? RejectionReason { get; set; }
+
+        public decimal QuantityOutstanding =>
+            QuantityOrdered - QuantityAlreadyReceived;
+    }
+}

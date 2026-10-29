@@ -1,0 +1,261 @@
+@page "/requisitions/{RequisitionId:guid}"
+@using P2P.Contracts.Common
+@attribute [Authorize]
+@inject IRequisitionApi RequisitionApi
+@inject DialogService DialogService
+@inject NotificationService Notifications
+
+<PageTitle>@(_requisition?.Number ?? "Requisition")</PageTitle>
+
+@if (_isLoading)
+{
+    <RadzenStack Gap="1rem">
+        <RadzenSkeleton Height="2rem" Width="40%" />
+        <RadzenSkeleton Height="12rem" />
+    </RadzenStack>
+}
+else if (_requisition is null)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+        That requisition could not be found.
+    </RadzenAlert>
+}
+else
+{
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 AlignItems="AlignItems.Center"
+                 JustifyContent="JustifyContent.SpaceBetween"
+                 Class="rz-mb-4">
+        <RadzenStack Gap="0.25rem">
+            <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-0">
+                @_requisition.Title
+            </RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
+                    @_requisition.Number
+                </RadzenText>
+                <RadzenBadge BadgeStyle="@BadgeStyleFor(_requisition.Status)"
+                             Text="@_requisition.Status.ToString()" IsPill="true" />
+            </RadzenStack>
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+            @if (_requisition.Status == RequisitionStatusDto.Draft)
+            {
+                <RadzenButton Text="Submit for approval"
+                              Icon="send"
+                              ButtonStyle="ButtonStyle.Primary"
+                              IsBusy="@_isBusy"
+                              Click="@SubmitAsync" />
+            }
+
+            @if (_requisition.Status is RequisitionStatusDto.Draft
+                                     or RequisitionStatusDto.PendingApproval)
+            {
+                <RadzenButton Text="Cancel requisition"
+                              Icon="block"
+                              ButtonStyle="ButtonStyle.Light"
+                              IsBusy="@_isBusy"
+                              Click="@CancelAsync" />
+            }
+        </RadzenStack>
+    </RadzenStack>
+
+    @if (_requisition.Status == RequisitionStatusDto.Rejected
+         && !string.IsNullOrWhiteSpace(_requisition.RejectionReason))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger"
+                     Variant="Variant.Flat"
+                     Shade="Shade.Lighter"
+                     AllowClose="false"
+                     Class="rz-mb-3">
+            <strong>Rejected:</strong> @_requisition.RejectionReason
+        </RadzenAlert>
+    }
+
+    <RadzenCard Class="rz-mb-3">
+        <RadzenRow Gap="2rem">
+            <RadzenColumn Size="3">
+                <LabelledValue Label="Cost centre" Value="@_requisition.CostCentreCode" />
+            </RadzenColumn>
+            <RadzenColumn Size="3">
+                <LabelledValue Label="Needed by"
+                               Value="@_requisition.NeededBy.ToString("d MMM yyyy")" />
+            </RadzenColumn>
+            <RadzenColumn Size="3">
+                <LabelledValue Label="Total"
+                               Value="@FormatMoney(_requisition.Total, _requisition.Currency)" />
+            </RadzenColumn>
+            <RadzenColumn Size="3">
+                <LabelledValue Label="Justification"
+                               Value="@(_requisition.Justification ?? "—")" />
+            </RadzenColumn>
+        </RadzenRow>
+    </RadzenCard>
+
+    <RadzenTabs RenderMode="TabRenderMode.Client">
+        <Tabs>
+            <RadzenTabsItem Text="Lines" Icon="list_alt">
+                <RadzenDataGrid TItem="RequisitionLineDto"
+                                Data="@_requisition.Lines"
+                                AllowPaging="false">
+                    <Columns>
+                        <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                              Property="LineNumber" Title="#" Width="60px" />
+                        <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                              Property="Description" Title="Description" />
+                        <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                              Property="ItemCode" Title="Item code"
+                                              Width="130px" />
+                        <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                              Property="Quantity" Title="Qty" Width="100px"
+                                              FormatString="{0:N2}"
+                                              TextAlign="TextAlign.Right" />
+                        <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                              Property="UnitOfMeasure" Title="UoM"
+                                              Width="80px" />
+                        <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                              Title="Unit price" Width="150px"
+                                              TextAlign="TextAlign.Right">
+                            <Template Context="line">
+                                @FormatMoney(line.UnitPrice, _requisition.Currency)
+                            </Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                              Title="Line total" Width="160px"
+                                              TextAlign="TextAlign.Right">
+                            <Template Context="line">
+                                <strong>@FormatMoney(line.LineTotal, _requisition.Currency)</strong>
+                            </Template>
+                        </RadzenDataGridColumn>
+                    </Columns>
+                </RadzenDataGrid>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Approval route" Icon="how_to_reg">
+                <RadzenDataGrid TItem="ApprovalStepDto"
+                                Data="@_requisition.ApprovalSteps"
+                                AllowPaging="false"
+                                EmptyText="Not yet submitted for approval.">
+                    <Columns>
+                        <RadzenDataGridColumn TItem="ApprovalStepDto"
+                                              Property="Sequence" Title="Step" Width="80px" />
+                        <RadzenDataGridColumn TItem="ApprovalStepDto"
+                                              Property="RequiredRole" Title="Approver role" />
+                        <RadzenDataGridColumn TItem="ApprovalStepDto"
+                                              Property="Status" Title="Status" Width="130px" />
+                        <RadzenDataGridColumn TItem="ApprovalStepDto"
+                                              Property="ActionedAtUtc" Title="When"
+                                              Width="190px"
+                                              FormatString="{0:d MMM yyyy HH:mm}" />
+                        <RadzenDataGridColumn TItem="ApprovalStepDto"
+                                              Property="Comment" Title="Comment" />
+                    </Columns>
+                </RadzenDataGrid>
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+}
+
+@code {
+    [Parameter] public Guid RequisitionId { get; set; }
+
+    private RequisitionDetailDto? _requisition;
+    private bool _isLoading = true;
+    private bool _isBusy;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            _requisition = await RequisitionApi.GetByIdAsync(RequisitionId);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        _isBusy = true;
+
+        try
+        {
+            var result = await RequisitionApi.SubmitAsync(RequisitionId);
+            await ReportAsync(result, "Submitted for approval");
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        var confirmed = await DialogService.Confirm(
+            "Cancel this requisition? This cannot be undone.",
+            "Cancel requisition",
+            new ConfirmOptions { OkButtonText = "Cancel requisition", CancelButtonText = "Keep it" });
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        _isBusy = true;
+
+        try
+        {
+            var result = await RequisitionApi.CancelAsync(RequisitionId);
+            await ReportAsync(result, "Requisition cancelled");
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ReportAsync(OperationResult result, string successSummary)
+    {
+        Notifications.Notify(new NotificationMessage
+        {
+            Severity = result.Succeeded
+                ? NotificationSeverity.Success
+                : NotificationSeverity.Error,
+            Summary = result.Succeeded ? successSummary : "Action failed",
+            Detail = result.ErrorMessage,
+            Duration = result.Succeeded ? 4000 : 8000
+        });
+
+        if (result.Succeeded)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private static BadgeStyle BadgeStyleFor(RequisitionStatusDto status) => status switch
+    {
+        RequisitionStatusDto.Draft => BadgeStyle.Light,
+        RequisitionStatusDto.PendingApproval => BadgeStyle.Info,
+        RequisitionStatusDto.Approved => BadgeStyle.Success,
+        RequisitionStatusDto.Converted => BadgeStyle.Primary,
+        RequisitionStatusDto.Rejected => BadgeStyle.Danger,
+        RequisitionStatusDto.Cancelled => BadgeStyle.Secondary,
+        _ => BadgeStyle.Light
+    };
+
+    private static string FormatMoney(decimal amount, string currency) => currency switch
+    {
+        "NGN" => $"₦{amount:N2}",
+        "GBP" => $"£{amount:N2}",
+        "EUR" => $"€{amount:N2}",
+        "USD" => $"${amount:N2}",
+        _ => $"{currency} {amount:N2}"
+    };
+}

@@ -1,0 +1,30 @@
+<RadzenLink Path="@Href" Style="text-decoration: none;">
+    <RadzenCard Style="height: 100%;">
+        <RadzenStack Orientation="Orientation.Horizontal"
+                     AlignItems="AlignItems.Center" Gap="1rem">
+            <RadzenIcon Icon="@Icon"
+                        Style="@($"font-size: 2.25rem; color: {Colour};")" />
+            <RadzenStack Gap="0.1rem">
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-mb-0">
+                    @Title
+                </RadzenText>
+                @if (Value is null)
+                {
+                    <RadzenSkeleton Height="1.75rem" Width="4rem" />
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.H5" Class="rz-mb-0">@Value</RadzenText>
+                }
+            </RadzenStack>
+        </RadzenStack>
+    </RadzenCard>
+</RadzenLink>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public string Icon { get; set; } = "insights";
+    [Parameter] public string Colour { get; set; } = "var(--rz-primary)";
+    [Parameter] public string Href { get; set; } = "";
+}

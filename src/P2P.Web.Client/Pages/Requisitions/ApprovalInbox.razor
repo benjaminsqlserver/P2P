@@ -1,0 +1,221 @@
+@page "/requisitions/inbox"
+@using P2P.Contracts.Common
+@attribute [Authorize(Policy = Policies.CanApproveRequisitions)]
+@inject IRequisitionApi RequisitionApi
+@inject DialogService DialogService
+@inject NotificationService Notifications
+
+<PageTitle>Approval inbox</PageTitle>
+
+<RadzenStack Orientation="Orientation.Horizontal"
+             AlignItems="AlignItems.Center"
+             JustifyContent="JustifyContent.SpaceBetween"
+             Class="rz-mb-4">
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 AlignItems="AlignItems.Center" Gap="0.75rem">
+        <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-0">Approval inbox</RadzenText>
+        @if (_totalCount > 0)
+        {
+            <RadzenBadge BadgeStyle="BadgeStyle.Primary" IsPill="true"
+                         Text="@_totalCount.ToString()" />
+        }
+    </RadzenStack>
+
+    <RadzenTextBox @bind-Value="_search"
+                   Change="@(_ => ReloadAsync())"
+                   Placeholder="Search number or title"
+                   Style="width: 280px;" />
+</RadzenStack>
+
+<RadzenDataList @ref="_list"
+                TItem="RequisitionListItemDto"
+                Data="@_items"
+                Count="@_totalCount"
+                LoadData="@LoadDataAsync"
+                IsLoading="@_isLoading"
+                AllowPaging="true"
+                PageSize="10"
+                ShowPagingSummary="true"
+                WrapItems="false"
+                EmptyText="Nothing is waiting for your approval.">
+    <Template Context="item">
+        <RadzenCard Class="rz-mb-2" Style="width: 100%;">
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Start"
+                         JustifyContent="JustifyContent.SpaceBetween"
+                         Gap="1rem">
+
+                <RadzenStack Gap="0.4rem" Style="flex: 1;">
+                    <RadzenStack Orientation="Orientation.Horizontal"
+                                 AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenLink Path="@($"requisitions/{item.Id}")">
+                            <RadzenText TextStyle="TextStyle.Subtitle1"
+                                        Class="rz-mb-0">
+                                @item.Number
+                            </RadzenText>
+                        </RadzenLink>
+
+                        <RadzenBadge BadgeStyle="@AgeBadgeStyle(item.AgeInDays)"
+                                     IsPill="true"
+                                     Text="@AgeLabel(item.AgeInDays)" />
+
+                        @if (item.PendingStepSequence > 1)
+                        {
+                            <RadzenBadge BadgeStyle="BadgeStyle.Info" IsPill="true"
+                                Text="@($"Step {item.PendingStepSequence}")" />
+                        }
+                    </RadzenStack>
+
+                    <RadzenText TextStyle="TextStyle.Body1" Class="rz-mb-0">
+                        @item.Title
+                    </RadzenText>
+
+                    <RadzenText TextStyle="TextStyle.Caption" Class="rz-mb-0">
+                        @item.CostCentreCode · needed by
+                        @item.NeededBy.ToString("d MMM yyyy")
+                        @if (item.PendingStepRole is not null)
+                        {
+                            <text> · awaiting @item.PendingStepRole</text>
+                        }
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenStack AlignItems="AlignItems.End" Gap="0.6rem">
+                    <RadzenText TextStyle="TextStyle.H6" Class="rz-mb-0">
+                        @FormatMoney(item.Total, item.Currency)
+                    </RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Reject"
+                                      Icon="close"
+                                      Size="ButtonSize.Small"
+                                      ButtonStyle="ButtonStyle.Danger"
+                                      Variant="Variant.Flat"
+                                      Click="@(() => RejectAsync(item))" />
+                        <RadzenButton Text="Approve"
+                                      Icon="check"
+                                      Size="ButtonSize.Small"
+                                      ButtonStyle="ButtonStyle.Success"
+                                      Click="@(() => ApproveAsync(item))" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </Template>
+</RadzenDataList>
+
+@code {
+    private RadzenDataList<RequisitionListItemDto>? _list;
+
+    // Null, not []: Radzen only raises LoadData on first render when Data
+    // is null; an empty list tells it there is nothing to load.
+    private IReadOnlyList<RequisitionListItemDto>? _items;
+    private int _totalCount;
+    private bool _isLoading;
+    private string? _search;
+
+    private async Task LoadDataAsync(LoadDataArgs args)
+    {
+        _isLoading = true;
+
+        try
+        {
+            var page = await RequisitionApi.GetApprovalInboxAsync(new GridQuery
+            {
+                Skip = args.Skip ?? 0,
+                Top = args.Top ?? 10,
+                Search = _search
+            });
+
+            _items = page.Items;
+            _totalCount = page.TotalCount;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (_list is not null)
+        {
+            await _list.FirstPage(forceReload: true);
+        }
+    }
+
+    private async Task ApproveAsync(RequisitionListItemDto item)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Approve {item.Number} for {FormatMoney(item.Total, item.Currency)}?",
+            "Confirm approval",
+            new ConfirmOptions { OkButtonText = "Approve", CancelButtonText = "Cancel" });
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        var result = await RequisitionApi.ApproveAsync(item.Id, comment: null);
+        await ReportAsync(result, $"{item.Number} approved");
+    }
+
+    private async Task RejectAsync(RequisitionListItemDto item)
+    {
+        var reason = await DialogService.OpenAsync<ReasonDialog>(
+            $"Reject {item.Number}",
+            new Dictionary<string, object>
+            {
+                ["Prompt"] = "The requester will see this reason. Why are you "
+                           + "rejecting this requisition?"
+            },
+            new DialogOptions { Width = "560px" });
+
+        if (reason is not string text || string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var result = await RequisitionApi.RejectAsync(item.Id, text);
+        await ReportAsync(result, $"{item.Number} rejected");
+    }
+
+    private async Task ReportAsync(OperationResult result, string successSummary)
+    {
+        Notifications.Notify(new NotificationMessage
+        {
+            Severity = result.Succeeded
+                ? NotificationSeverity.Success
+                : NotificationSeverity.Error,
+            Summary = result.Succeeded ? successSummary : "Action failed",
+            Detail = result.ErrorMessage,
+            Duration = result.Succeeded ? 4000 : 8000
+        });
+
+        await ReloadAsync();
+    }
+
+    private static BadgeStyle AgeBadgeStyle(int days) => days switch
+    {
+        >= 7 => BadgeStyle.Danger,
+        >= 3 => BadgeStyle.Warning,
+        _ => BadgeStyle.Light
+    };
+
+    private static string AgeLabel(int days) => days switch
+    {
+        0 => "today",
+        1 => "1 day",
+        _ => $"{days} days"
+    };
+
+    private static string FormatMoney(decimal amount, string currency) =>
+        currency switch
+        {
+            "NGN" => $"₦{amount:N2}",
+            "GBP" => $"£{amount:N2}",
+            "EUR" => $"€{amount:N2}",
+            "USD" => $"${amount:N2}",
+            _ => $"{currency} {amount:N2}"
+        };
+}

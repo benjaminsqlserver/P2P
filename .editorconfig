@@ -1,0 +1,11 @@
+root = true
+
+[*.cs]
+# CA1716 flags identifiers that are Visual Basic keywords (Error, Next, ...).
+# This solution is C#-only, so the rule only produces noise.
+dotnet_diagnostic.CA1716.severity = none
+
+# CA1848 / CA1873 push LoggerMessage source generators for every log call.
+# The book uses ordinary ILogger extension calls; the cost is negligible here.
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1873.severity = none

@@ -1,0 +1,109 @@
+@page "/"
+@attribute [Authorize]
+@inject IDashboardApi DashboardApi
+
+<PageTitle>Dashboard</PageTitle>
+
+<RadzenText TextStyle="TextStyle.H4" Class="rz-mb-4">Overview</RadzenText>
+
+<RadzenRow Gap="1rem" Class="rz-mb-4">
+    <RadzenColumn Size="12" SizeMD="3">
+        <MetricCard Title="Awaiting my approval"
+                    Value="@_summary?.AwaitingMyApproval.ToString()"
+                    Icon="how_to_reg"
+                    Colour="var(--rz-primary)"
+                    Href="requisitions/inbox" />
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <MetricCard Title="Open purchase orders"
+                    Value="@_summary?.OpenPurchaseOrders.ToString()"
+                    Icon="receipt_long"
+                    Colour="var(--rz-info)"
+                    Href="purchase-orders" />
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <MetricCard Title="Match exceptions"
+                    Value="@_summary?.UnresolvedExceptions.ToString()"
+                    Icon="report_problem"
+                    Colour="var(--rz-warning)"
+                    Href="invoices/exceptions" />
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <MetricCard Title="Payable this week"
+                    Value="@FormatMoney(_summary?.PayableThisWeek)"
+                    Icon="payments"
+                    Colour="var(--rz-success)"
+                    Href="payments" />
+    </RadzenColumn>
+</RadzenRow>
+
+<RadzenRow Gap="1rem">
+    <RadzenColumn Size="12" SizeMD="7">
+        <RadzenCard>
+            <RadzenText TextStyle="TextStyle.H6">Spend by month</RadzenText>
+
+            <RadzenChart>
+                <RadzenColumnSeries TItem="MonthlySpendDto"
+                                    Data="@_monthlySpend"
+                                    CategoryProperty="Month"
+                                    ValueProperty="Amount"
+                                    Title="Committed spend" />
+                <RadzenValueAxis Formatter="@FormatAxis">
+                    <RadzenGridLines Visible="true" />
+                    <RadzenAxisTitle Text="Amount" />
+                </RadzenValueAxis>
+                <RadzenCategoryAxis>
+                    <RadzenAxisTitle Text="Month" />
+                </RadzenCategoryAxis>
+                <RadzenColumnOptions Radius="3" />
+                <RadzenLegend Visible="false" />
+            </RadzenChart>
+        </RadzenCard>
+    </RadzenColumn>
+
+    <RadzenColumn Size="12" SizeMD="5">
+        <RadzenCard>
+            <RadzenText TextStyle="TextStyle.H6">Invoice ageing</RadzenText>
+
+            <RadzenChart>
+                <RadzenDonutSeries TItem="AgeingBucketDto"
+                                   Data="@_ageing"
+                                   CategoryProperty="Bucket"
+                                   ValueProperty="Amount"
+                                   Title="Outstanding">
+                    <TitleTemplate>
+                        <div class="rz-donut-content">
+                            <div>Outstanding</div>
+                            <div>@FormatMoney(_ageing.Sum(a => a.Amount))</div>
+                        </div>
+                    </TitleTemplate>
+                </RadzenDonutSeries>
+                <RadzenLegend Position="LegendPosition.Bottom" />
+            </RadzenChart>
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>
+
+@code {
+    private DashboardSummaryDto? _summary;
+    private IReadOnlyList<MonthlySpendDto> _monthlySpend = [];
+    private IReadOnlyList<AgeingBucketDto> _ageing = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _summary = await DashboardApi.GetSummaryAsync();
+        _monthlySpend = await DashboardApi.GetMonthlySpendAsync(months: 12);
+        _ageing = await DashboardApi.GetInvoiceAgeingAsync();
+    }
+
+    // Radzen passes axis values as double, not decimal.
+    private static string FormatAxis(object value) => value switch
+    {
+        decimal d => $"₦{d / 1_000_000m:N1}m",
+        double d => $"₦{d / 1_000_000d:N1}m",
+        _ => value?.ToString() ?? string.Empty
+    };
+
+    private static string FormatMoney(decimal? amount) =>
+        amount.HasValue ? $"₦{amount.Value:N0}" : "—";
+}

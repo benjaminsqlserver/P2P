@@ -1,0 +1,73 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<RadzenComponents @rendermode="InteractiveAuto" />
+
+<RadzenLayout>
+    <RadzenHeader>
+        <RadzenStack Orientation="Orientation.Horizontal"
+                     AlignItems="AlignItems.Center"
+                     Gap="0.5rem"
+                     Class="rz-px-3 rz-py-2">
+
+            <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)" />
+
+            <RadzenText TextStyle="TextStyle.H6"
+                        Class="rz-mb-0 rz-mr-4">
+                Procure&#8209;to&#8209;Pay
+            </RadzenText>
+
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center"
+                         Gap="0.5rem"
+                         Class="rz-ml-auto">
+
+                <AuthorizeView>
+                    <Authorized>
+                        <RadzenIcon Icon="account_circle" />
+                        <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
+                            @context.User.Identity?.Name
+                        </RadzenText>
+                        <RadzenButton Icon="logout"
+                                      Variant="Variant.Text"
+                                      ButtonStyle="ButtonStyle.Light"
+                                      Click="@SignOut" />
+                    </Authorized>
+                    <NotAuthorized>
+                        <RadzenButton Text="Sign in"
+                                      Icon="login"
+                                      Variant="Variant.Text"
+                                      Click="@SignIn" />
+                    </NotAuthorized>
+                </AuthorizeView>
+
+            </RadzenStack>
+        </RadzenStack>
+    </RadzenHeader>
+
+    <RadzenSidebar @bind-Expanded="_sidebarExpanded" Style="width: 260px;">
+        <NavMenu />
+    </RadzenSidebar>
+
+    <RadzenBody>
+        <div class="rz-p-4">
+            @Body
+        </div>
+    </RadzenBody>
+
+    <RadzenFooter>
+        <RadzenText TextStyle="TextStyle.Caption" Class="rz-p-2 rz-mb-0">
+            Procure-to-Pay · built with Radzen Blazor Components
+        </RadzenText>
+    </RadzenFooter>
+</RadzenLayout>
+
+@code {
+    private bool _sidebarExpanded = true;
+
+    private void SignIn() =>
+        Navigation.NavigateTo("authentication/login", forceLoad: true);
+
+    private void SignOut() =>
+        Navigation.NavigateTo("authentication/logout", forceLoad: true);
+}

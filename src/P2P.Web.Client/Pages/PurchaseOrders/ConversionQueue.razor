@@ -1,0 +1,158 @@
+@page "/purchase-orders/queue"
+@using P2P.Contracts.Common
+@attribute [Authorize(Policy = Policies.CanIssuePurchaseOrders)]
+@inject IRequisitionApi RequisitionApi
+@inject DialogService DialogService
+@inject NotificationService Notifications
+
+<PageTitle>Awaiting conversion</PageTitle>
+
+<RadzenText TextStyle="TextStyle.H4" Class="rz-mb-4">
+    Approved requisitions awaiting conversion
+</RadzenText>
+
+<RadzenDataGrid @ref="_grid"
+                TItem="RequisitionListItemDto"
+                Data="@_items"
+                Count="@_totalCount"
+                LoadData="@LoadDataAsync"
+                IsLoading="@_isLoading"
+                AllowPaging="true"
+                AllowSorting="true"
+                PageSize="20"
+                ExpandMode="DataGridExpandMode.Single"
+                RowExpand="@OnRowExpandAsync"
+                EmptyText="Nothing is waiting to be converted.">
+
+    <Template Context="requisition">
+        @if (_expandedDetail?.Id == requisition.Id)
+        {
+            <RadzenDataGrid TItem="RequisitionLineDto"
+                            Data="@_expandedDetail.Lines"
+                            AllowPaging="false">
+                <Columns>
+                    <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                          Property="LineNumber" Title="#"
+                                          Width="60px" />
+                    <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                          Property="Description"
+                                          Title="Description" />
+                    <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                          Property="Quantity" Title="Qty"
+                                          Width="100px"
+                                          FormatString="{0:N2}"
+                                          TextAlign="TextAlign.Right" />
+                    <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                          Property="UnitOfMeasure" Title="UoM"
+                                          Width="80px" />
+                    <RadzenDataGridColumn TItem="RequisitionLineDto"
+                                          Property="LineTotal" Title="Line total"
+                                          Width="160px"
+                                          FormatString="{0:N2}"
+                                          TextAlign="TextAlign.Right" />
+                </Columns>
+            </RadzenDataGrid>
+        }
+        else
+        {
+            <RadzenProgressBarCircular ProgressBarStyle="ProgressBarStyle.Primary"
+                                       Value="100" ShowValue="false"
+                                       Mode="ProgressBarMode.Indeterminate" />
+        }
+    </Template>
+
+    <Columns>
+        <RadzenDataGridColumn TItem="RequisitionListItemDto"
+                              Property="Number" Title="Number" Width="170px" />
+        <RadzenDataGridColumn TItem="RequisitionListItemDto"
+                              Property="Title" Title="Title" />
+        <RadzenDataGridColumn TItem="RequisitionListItemDto"
+                              Property="CostCentreCode" Title="Cost centre"
+                              Width="140px" />
+        <RadzenDataGridColumn TItem="RequisitionListItemDto"
+                              Property="NeededBy" Title="Needed by" Width="140px"
+                              FormatString="{0:d MMM yyyy}" />
+        <RadzenDataGridColumn TItem="RequisitionListItemDto"
+                              Property="Total" Title="Value" Width="160px"
+                              TextAlign="TextAlign.Right">
+            <Template Context="r">@FormatMoney(r.Total, r.Currency)</Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="RequisitionListItemDto" Title=""
+                              Sortable="false" Width="150px">
+            <Template Context="r">
+                <RadzenButton Text="Raise PO" Icon="receipt_long"
+                              Size="ButtonSize.Small"
+                              Click="@(() => RaisePurchaseOrderAsync(r))" />
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    private RadzenDataGrid<RequisitionListItemDto>? _grid;
+
+    // Null, not []: Radzen only raises LoadData on first render when Data
+    // is null; an empty list tells it there is nothing to load.
+    private IReadOnlyList<RequisitionListItemDto>? _items;
+    private RequisitionDetailDto? _expandedDetail;
+    private int _totalCount;
+    private bool _isLoading;
+
+    private async Task LoadDataAsync(LoadDataArgs args)
+    {
+        _isLoading = true;
+
+        try
+        {
+            var page = await RequisitionApi.GetListAsync(new RequisitionGridQuery
+            {
+                Skip = args.Skip ?? 0,
+                Top = args.Top ?? 20,
+                OrderBy = args.Sorts?.FirstOrDefault()?.Property,
+                Descending =
+                    args.Sorts?.FirstOrDefault()?.SortOrder == SortOrder.Descending,
+                Status = RequisitionStatusDto.Approved
+            });
+
+            _items = page.Items;
+            _totalCount = page.TotalCount;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnRowExpandAsync(RequisitionListItemDto requisition)
+    {
+        _expandedDetail = null;
+        StateHasChanged();
+        _expandedDetail = await RequisitionApi.GetByIdAsync(requisition.Id);
+    }
+
+    private async Task RaisePurchaseOrderAsync(RequisitionListItemDto requisition)
+    {
+        var created = await DialogService.OpenAsync<RaisePurchaseOrderDialog>(
+            $"Raise purchase order from {requisition.Number}",
+            new Dictionary<string, object> { ["RequisitionId"] = requisition.Id },
+            new DialogOptions { Width = "720px", CloseDialogOnOverlayClick = false });
+
+        if (created is true)
+        {
+            Notifications.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "Purchase order raised",
+                Duration = 5000
+            });
+
+            if (_grid is not null)
+            {
+                await _grid.Reload();
+            }
+        }
+    }
+
+    private static string FormatMoney(decimal amount, string currency) =>
+        currency == "NGN" ? $"₦{amount:N2}" : $"{currency} {amount:N2}";
+}

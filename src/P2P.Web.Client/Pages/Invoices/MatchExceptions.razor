@@ -1,0 +1,327 @@
+@page "/invoices/exceptions"
+@using P2P.Contracts.Common
+@attribute [Authorize(Policy = Policies.CanProcessInvoices)]
+@inject IInvoiceApi InvoiceApi
+@inject DialogService DialogService
+@inject NotificationService Notifications
+
+<PageTitle>Match exceptions</PageTitle>
+
+<RadzenStack Orientation="Orientation.Horizontal"
+             JustifyContent="JustifyContent.SpaceBetween"
+             AlignItems="AlignItems.Center"
+             Class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-0">Match exceptions</RadzenText>
+
+    <RadzenSelectBar @bind-Value="_typeFilter" TValue="MatchExceptionTypeDto?"
+                     Change="@(_ => ReloadAsync())" Size="ButtonSize.Small">
+        <Items>
+            <RadzenSelectBarItem Text="All" Value="@((MatchExceptionTypeDto?)null)" />
+            <RadzenSelectBarItem Text="Quantity"
+                Value="@((MatchExceptionTypeDto?)MatchExceptionTypeDto.QuantityOverBilled)" />
+            <RadzenSelectBarItem Text="Price"
+                Value="@((MatchExceptionTypeDto?)MatchExceptionTypeDto.PriceAboveTolerance)" />
+            <RadzenSelectBarItem Text="No receipt"
+                Value="@((MatchExceptionTypeDto?)MatchExceptionTypeDto.NoReceiptRecorded)" />
+            <RadzenSelectBarItem Text="Duplicate"
+                Value="@((MatchExceptionTypeDto?)MatchExceptionTypeDto.DuplicateInvoiceNumber)" />
+        </Items>
+    </RadzenSelectBar>
+</RadzenStack>
+
+<RadzenDataGrid @ref="_grid"
+                TItem="InvoiceExceptionRowDto"
+                Data="@_rows"
+                Count="@_totalCount"
+                LoadData="@LoadDataAsync"
+                IsLoading="@_isLoading"
+                AllowPaging="true"
+                AllowSorting="true"
+                PageSize="20"
+                ExpandMode="DataGridExpandMode.Single"
+                RowExpand="@OnRowExpandAsync"
+                EmptyText="No unresolved match exceptions. Well done."
+                GridLines="DataGridGridLines.Horizontal">
+
+    <Template Context="row">
+        @if (_detail?.Id == row.InvoiceId)
+        {
+            <RadzenTabs RenderMode="TabRenderMode.Client">
+                <Tabs>
+                    <RadzenTabsItem Text="Exceptions" Icon="report_problem">
+                        <RadzenStack Gap="0.75rem" Class="rz-p-2">
+                            @foreach (var ex in _detail.MatchExceptions
+                                                       .Where(e => !e.IsResolved))
+                            {
+                                <RadzenAlert AlertStyle="@AlertStyleFor(ex.Type)"
+                                             Variant="Variant.Flat"
+                                             Shade="Shade.Lighter"
+                                             AllowClose="false">
+                                    <RadzenStack Orientation="Orientation.Horizontal"
+                                                 AlignItems="AlignItems.Center"
+                                                 JustifyContent="JustifyContent.SpaceBetween"
+                                                 Gap="1rem">
+                                        <RadzenStack Gap="0.25rem">
+                                            <RadzenText TextStyle="TextStyle.Subtitle2"
+                                                        Class="rz-mb-0">
+                                                @Humanise(ex.Type)
+                                            </RadzenText>
+                                            <RadzenText TextStyle="TextStyle.Body2"
+                                                        Class="rz-mb-0">
+                                                @ex.Description
+                                            </RadzenText>
+                                            @if (ex.ExpectedValue.HasValue
+                                                 && ex.ActualValue.HasValue)
+                                            {
+                                                <RadzenText TextStyle="TextStyle.Caption"
+                                                            Class="rz-mb-0">
+                                                    expected @ex.ExpectedValue.Value.ToString("N2")
+                                                    · actual @ex.ActualValue.Value.ToString("N2")
+                                                    · variance
+                                                    @((ex.ActualValue.Value
+                                                       - ex.ExpectedValue.Value).ToString("N2"))
+                                                </RadzenText>
+                                            }
+                                        </RadzenStack>
+
+                                        <RadzenButton Text="Resolve"
+                                                      Icon="task_alt"
+                                                      Size="ButtonSize.Small"
+                                                      ButtonStyle="ButtonStyle.Primary"
+                                                      Click="@(() => ResolveAsync(_detail.Id, ex))" />
+                                    </RadzenStack>
+                                </RadzenAlert>
+                            }
+                        </RadzenStack>
+                    </RadzenTabsItem>
+
+                    <RadzenTabsItem Text="Three-way comparison" Icon="compare_arrows">
+                        <RadzenDataGrid TItem="MatchComparisonLineDto"
+                                        Data="@_detail.Comparison"
+                                        AllowPaging="false"
+                                        GridLines="DataGridGridLines.Both">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="MatchComparisonLineDto"
+                                                      Property="Description"
+                                                      Title="Line" />
+
+                                <RadzenDataGridColumn TItem="MatchComparisonLineDto"
+                                                      Title="Ordered" Width="200px"
+                                                      TextAlign="TextAlign.Right">
+                                    <Template Context="c">
+                                        @c.QuantityOrdered.ToString("N2")
+                                        @@ @c.PoUnitPrice.ToString("N2")
+                                    </Template>
+                                </RadzenDataGridColumn>
+
+                                <RadzenDataGridColumn TItem="MatchComparisonLineDto"
+                                                      Title="Received" Width="140px"
+                                                      TextAlign="TextAlign.Right">
+                                    <Template Context="c">
+                                        @c.QuantityReceived.ToString("N2")
+                                    </Template>
+                                </RadzenDataGridColumn>
+
+                                <RadzenDataGridColumn TItem="MatchComparisonLineDto"
+                                                      Title="Invoiced" Width="200px"
+                                                      TextAlign="TextAlign.Right">
+                                    <Template Context="c">
+                                        <span style="@VarianceStyle(c)">
+                                            @c.QuantityInvoiced.ToString("N2")
+                                            @@ @c.InvoiceUnitPrice.ToString("N2")
+                                        </span>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenTabsItem>
+                </Tabs>
+            </RadzenTabs>
+        }
+        else
+        {
+            <RadzenProgressBarCircular Mode="ProgressBarMode.Indeterminate"
+                                       Value="100" ShowValue="false" />
+        }
+    </Template>
+
+    <Columns>
+        <RadzenDataGridColumn TItem="InvoiceExceptionRowDto"
+                              Property="InternalNumber" Title="Invoice"
+                              Width="170px" />
+        <RadzenDataGridColumn TItem="InvoiceExceptionRowDto"
+                              Property="VendorInvoiceNumber"
+                              Title="Vendor ref" Width="150px" />
+        <RadzenDataGridColumn TItem="InvoiceExceptionRowDto"
+                              Property="VendorName" Title="Vendor" MinWidth="200px" />
+        <RadzenDataGridColumn TItem="InvoiceExceptionRowDto"
+                              Property="PurchaseOrderNumber" Title="PO"
+                              Width="160px" />
+        <RadzenDataGridColumn TItem="InvoiceExceptionRowDto"
+                              Title="Exceptions" Width="200px" Sortable="false">
+            <Template Context="row">
+                <RadzenStack Orientation="Orientation.Horizontal"
+                             Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                    @foreach (var type in row.ExceptionTypes.Distinct())
+                    {
+                        <RadzenBadge BadgeStyle="@BadgeFor(type)"
+                                     IsPill="true" Text="@ShortLabel(type)" />
+                    }
+                </RadzenStack>
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="InvoiceExceptionRowDto"
+                              Property="GrossTotal" Title="Amount" Width="160px"
+                              TextAlign="TextAlign.Right">
+            <Template Context="row">
+                @FormatMoney(row.GrossTotal, row.Currency)
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="InvoiceExceptionRowDto"
+                              Property="AgeInDays" Title="Age" Width="100px"
+                              TextAlign="TextAlign.Right">
+            <Template Context="row">
+                <RadzenBadge BadgeStyle="@(row.AgeInDays >= 5
+                                           ? BadgeStyle.Danger : BadgeStyle.Light)"
+                             IsPill="true" Text="@($"{row.AgeInDays}d")" />
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    private RadzenDataGrid<InvoiceExceptionRowDto>? _grid;
+    private IReadOnlyList<InvoiceExceptionRowDto>? _rows;
+    private InvoiceDetailDto? _detail;
+    private int _totalCount;
+    private bool _isLoading;
+    private MatchExceptionTypeDto? _typeFilter;
+
+    private async Task LoadDataAsync(LoadDataArgs args)
+    {
+        _isLoading = true;
+
+        try
+        {
+            var page = await InvoiceApi.GetExceptionQueueAsync(
+                new InvoiceExceptionQuery
+                {
+                    Skip = args.Skip ?? 0,
+                    Top = args.Top ?? 20,
+                    OrderBy = args.Sorts?.FirstOrDefault()?.Property,
+                    Descending = args.Sorts?.FirstOrDefault()?.SortOrder
+                                 == SortOrder.Descending,
+                    ExceptionType = _typeFilter
+                });
+
+            _rows = page.Items;
+            _totalCount = page.TotalCount;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnRowExpandAsync(InvoiceExceptionRowDto row)
+    {
+        _detail = null;
+        StateHasChanged();
+        _detail = await InvoiceApi.GetByIdAsync(row.InvoiceId);
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (_grid is not null)
+        {
+            await _grid.FirstPage(forceReload: true);
+        }
+    }
+
+    private async Task ResolveAsync(Guid invoiceId, MatchExceptionDto exception)
+    {
+        var resolution = await DialogService.OpenAsync<ReasonDialog>(
+            "Resolve match exception",
+            new Dictionary<string, object>
+            {
+                ["Prompt"] = "Record how this exception was resolved. This note is "
+                           + "part of the audit trail and cannot be edited later."
+            },
+            new DialogOptions { Width = "620px" });
+
+        if (resolution is not string text || string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var result = await InvoiceApi.ResolveExceptionAsync(
+            invoiceId, exception.Id, text);
+
+        Notifications.Notify(new NotificationMessage
+        {
+            Severity = result.Succeeded
+                ? NotificationSeverity.Success
+                : NotificationSeverity.Error,
+            Summary = result.Succeeded ? "Exception resolved" : "Could not resolve",
+            Detail = result.ErrorMessage,
+            Duration = result.Succeeded ? 4000 : 8000
+        });
+
+        if (result.Succeeded)
+        {
+            _detail = await InvoiceApi.GetByIdAsync(invoiceId);
+            await ReloadAsync();
+        }
+    }
+
+    private static AlertStyle AlertStyleFor(MatchExceptionTypeDto type) => type switch
+    {
+        MatchExceptionTypeDto.DuplicateInvoiceNumber => AlertStyle.Danger,
+        MatchExceptionTypeDto.CurrencyMismatch => AlertStyle.Danger,
+        MatchExceptionTypeDto.QuantityOverBilled => AlertStyle.Warning,
+        MatchExceptionTypeDto.PriceAboveTolerance => AlertStyle.Warning,
+        _ => AlertStyle.Info
+    };
+
+    private static BadgeStyle BadgeFor(MatchExceptionTypeDto type) => type switch
+    {
+        MatchExceptionTypeDto.DuplicateInvoiceNumber => BadgeStyle.Danger,
+        MatchExceptionTypeDto.CurrencyMismatch => BadgeStyle.Danger,
+        MatchExceptionTypeDto.QuantityOverBilled => BadgeStyle.Warning,
+        MatchExceptionTypeDto.PriceAboveTolerance => BadgeStyle.Warning,
+        _ => BadgeStyle.Info
+    };
+
+    private static string ShortLabel(MatchExceptionTypeDto type) => type switch
+    {
+        MatchExceptionTypeDto.QuantityOverBilled => "Qty",
+        MatchExceptionTypeDto.PriceAboveTolerance => "Price",
+        MatchExceptionTypeDto.NoReceiptRecorded => "No GRN",
+        MatchExceptionTypeDto.LineNotOnPurchaseOrder => "Unmatched line",
+        MatchExceptionTypeDto.DuplicateInvoiceNumber => "Duplicate",
+        MatchExceptionTypeDto.CurrencyMismatch => "Currency",
+        _ => "Other"
+    };
+
+    private static string Humanise(MatchExceptionTypeDto type) => type switch
+    {
+        MatchExceptionTypeDto.QuantityOverBilled => "Billed more than was received",
+        MatchExceptionTypeDto.PriceAboveTolerance => "Price above agreed tolerance",
+        MatchExceptionTypeDto.NoReceiptRecorded => "No goods receipt recorded",
+        MatchExceptionTypeDto.LineNotOnPurchaseOrder =>
+            "Invoice line not on the purchase order",
+        MatchExceptionTypeDto.DuplicateInvoiceNumber =>
+            "Duplicate vendor invoice number",
+        MatchExceptionTypeDto.CurrencyMismatch => "Currency mismatch",
+        _ => "Match exception"
+    };
+
+    private static string VarianceStyle(MatchComparisonLineDto c) =>
+        c.QuantityInvoiced > c.QuantityReceived
+        || c.InvoiceUnitPrice > c.PoUnitPrice
+            ? "color: var(--rz-danger); font-weight: 600;"
+            : string.Empty;
+
+    private static string FormatMoney(decimal amount, string currency) =>
+        currency == "NGN" ? $"₦{amount:N2}" : $"{currency} {amount:N2}";
+}

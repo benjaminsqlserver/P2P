@@ -1,0 +1,54 @@
+<RadzenPanelMenu Multiple="false">
+
+    <RadzenPanelMenuItem Text="Dashboard" Icon="dashboard" Path="" Match="NavLinkMatch.All" />
+
+    <RadzenPanelMenuItem Text="Requisitions" Icon="request_quote">
+        <RadzenPanelMenuItem Text="My requisitions" Icon="list_alt"
+                             Path="requisitions" />
+        <RadzenPanelMenuItem Text="New requisition" Icon="add_circle"
+                             Path="requisitions/new" />
+        <AuthorizeView Policy="@Policies.CanApproveRequisitions">
+            <RadzenPanelMenuItem Text="Approval inbox" Icon="how_to_reg"
+                                 Path="requisitions/inbox" />
+        </AuthorizeView>
+    </RadzenPanelMenuItem>
+
+    <RadzenPanelMenuItem Text="Purchasing" Icon="shopping_cart">
+        <RadzenPanelMenuItem Text="Purchase orders" Icon="receipt_long"
+                             Path="purchase-orders" />
+        <RadzenPanelMenuItem Text="Awaiting conversion" Icon="playlist_add_check"
+                             Path="purchase-orders/queue" />
+    </RadzenPanelMenuItem>
+
+    <RadzenPanelMenuItem Text="Receiving" Icon="inventory_2">
+        <RadzenPanelMenuItem Text="Record a receipt" Icon="add_box"
+                             Path="receipts/new" />
+        <RadzenPanelMenuItem Text="Receipt history" Icon="history"
+                             Path="receipts" />
+    </RadzenPanelMenuItem>
+
+    <RadzenPanelMenuItem Text="Payables" Icon="payments">
+        <RadzenPanelMenuItem Text="Invoice register" Icon="description"
+                             Path="invoices" />
+        <RadzenPanelMenuItem Text="Match exceptions" Icon="report_problem"
+                             Path="invoices/exceptions" />
+        <RadzenPanelMenuItem Text="Payment runs" Icon="account_balance"
+                             Path="payments" />
+    </RadzenPanelMenuItem>
+
+    <RadzenPanelMenuItem Text="Master data" Icon="storage">
+        <RadzenPanelMenuItem Text="Vendors" Icon="business" Path="vendors" />
+        <RadzenPanelMenuItem Text="Cost centres" Icon="account_tree"
+                             Path="cost-centres" />
+        <RadzenPanelMenuItem Text="Approval policy" Icon="rule"
+                             Path="approval-policy" />
+    </RadzenPanelMenuItem>
+
+    <AuthorizeView Roles="@($"{Roles.Auditor},{Roles.ProcurementAdministrator}")">
+        <RadzenPanelMenuItem Text="Admin" Icon="admin_panel_settings">
+            <RadzenPanelMenuItem Text="Audit trail" Icon="history_edu"
+                                 Path="admin/audit" />
+        </RadzenPanelMenuItem>
+    </AuthorizeView>
+
+</RadzenPanelMenu>

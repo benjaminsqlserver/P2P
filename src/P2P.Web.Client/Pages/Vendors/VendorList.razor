@@ -1,0 +1,324 @@
+@page "/vendors"
+@using P2P.Contracts.Common
+@attribute [Authorize]
+@inject IVendorApi VendorApi
+@inject DialogService DialogService
+@inject NotificationService Notifications
+@inject NavigationManager Navigation
+
+<PageTitle>Vendors</PageTitle>
+
+<RadzenStack Orientation="Orientation.Horizontal"
+             AlignItems="AlignItems.Center"
+             JustifyContent="JustifyContent.SpaceBetween"
+             Class="rz-mb-4">
+
+    <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-0">Vendor register</RadzenText>
+
+    <AuthorizeView Policy="@Policies.CanManageVendors">
+        <RadzenButton Text="New vendor"
+                      Icon="add"
+                      ButtonStyle="ButtonStyle.Primary"
+                      Click="@OpenCreateDialog" />
+    </AuthorizeView>
+</RadzenStack>
+
+<RadzenCard Class="rz-mb-3">
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 AlignItems="AlignItems.End"
+                 Gap="1rem"
+                 Wrap="FlexWrap.Wrap">
+
+        <RadzenFormField Text="Search" Style="min-width: 260px;">
+            <RadzenTextBox @bind-Value="_search"
+                           Change="@(_ => ReloadAsync())"
+                           Placeholder="Code, legal name or trading name" />
+        </RadzenFormField>
+
+        <RadzenFormField Text="Status" Style="min-width: 180px;">
+            <RadzenDropDown TValue="VendorStatusDto?"
+                            @bind-Value="_status"
+                            Data="@_statusOptions"
+                            AllowClear="true"
+                            Change="@(_ => ReloadAsync())"
+                            Placeholder="All statuses" />
+        </RadzenFormField>
+
+        <RadzenButton Text="Clear"
+                      Icon="clear"
+                      Variant="Variant.Text"
+                      ButtonStyle="ButtonStyle.Light"
+                      Click="@ClearFiltersAsync" />
+    </RadzenStack>
+</RadzenCard>
+
+<RadzenDataGrid @ref="_grid"
+                TItem="VendorListItemDto"
+                Data="@_vendors"
+                Count="@_totalCount"
+                LoadData="@LoadDataAsync"
+                IsLoading="@_isLoading"
+                AllowPaging="true"
+                AllowSorting="true"
+                PageSize="25"
+                PageSizeOptions="@(new[] { 10, 25, 50, 100 })"
+                ShowPagingSummary="true"
+                PagingSummaryFormat="Showing page {0} of {1} ({2} vendors)"
+                AllowColumnResize="true"
+                RowDoubleClick="@(args => OpenDetail(args.Data))"
+                EmptyText="No vendors match the current filter."
+                GridLines="DataGridGridLines.Horizontal">
+
+    <Columns>
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Property="@nameof(VendorListItemDto.Code)"
+                              Title="Code"
+                              Width="120px">
+            <Template Context="vendor">
+                <RadzenLink Path="@($"vendors/{vendor.Id}")" Text="@vendor.Code" />
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Property="@nameof(VendorListItemDto.LegalName)"
+                              Title="Legal name"
+                              MinWidth="220px">
+            <Template Context="vendor">
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
+                        @vendor.LegalName
+                    </RadzenText>
+                    @if (!string.IsNullOrWhiteSpace(vendor.TradingName))
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" Class="rz-mb-0">
+                            trading as @vendor.TradingName
+                        </RadzenText>
+                    }
+                </RadzenStack>
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Property="@nameof(VendorListItemDto.Status)"
+                              Title="Status"
+                              Width="130px">
+            <Template Context="vendor">
+                <RadzenBadge BadgeStyle="@BadgeStyleFor(vendor.Status)"
+                             Text="@vendor.Status.ToString()"
+                             IsPill="true" />
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Title="Location"
+                              Sortable="false"
+                              Width="180px">
+            <Template Context="vendor">
+                @vendor.City, @vendor.CountryCode
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Property="@nameof(VendorListItemDto.PaymentTermsDays)"
+                              Title="Terms"
+                              Width="100px"
+                              TextAlign="TextAlign.Right">
+            <Template Context="vendor">
+                @vendor.PaymentTermsDays days
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Title="Open POs"
+                              Sortable="false"
+                              Width="110px"
+                              TextAlign="TextAlign.Right">
+            <Template Context="vendor">
+                @vendor.OpenPurchaseOrderCount
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Title="Outstanding"
+                              Sortable="false"
+                              Width="150px"
+                              TextAlign="TextAlign.Right">
+            <Template Context="vendor">
+                @FormatMoney(vendor.OutstandingBalance, vendor.DefaultCurrency)
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="VendorListItemDto"
+                              Title=""
+                              Sortable="false"
+                              Filterable="false"
+                              Width="120px"
+                              TextAlign="TextAlign.Center">
+            <Template Context="vendor">
+                <AuthorizeView Policy="@Policies.CanManageVendors">
+                    @if (vendor.Status == VendorStatusDto.Draft)
+                    {
+                        <RadzenButton Icon="check_circle"
+                                      Size="ButtonSize.Small"
+                                      ButtonStyle="ButtonStyle.Success"
+                                      Variant="Variant.Text"
+                                      Click="@(() => ActivateAsync(vendor))"
+                                      title="Activate this vendor" />
+                    }
+                    <RadzenButton Icon="edit"
+                                  Size="ButtonSize.Small"
+                                  ButtonStyle="ButtonStyle.Light"
+                                  Variant="Variant.Text"
+                                  Click="@(() => OpenDetail(vendor))" />
+                </AuthorizeView>
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    private RadzenDataGrid<VendorListItemDto>? _grid;
+    // Null, not []: RadzenDataGrid only raises LoadData on first render
+    // when Data is null; an empty list tells it there is nothing to load.
+    private IReadOnlyList<VendorListItemDto>? _vendors;
+    private int _totalCount;
+    private bool _isLoading;
+
+    private string? _search;
+    private VendorStatusDto? _status;
+
+    private readonly VendorStatusDto[] _statusOptions =
+        Enum.GetValues<VendorStatusDto>();
+
+    private async Task LoadDataAsync(LoadDataArgs args)
+    {
+        _isLoading = true;
+
+        try
+        {
+            var query = new VendorGridQuery
+            {
+                Skip = args.Skip ?? 0,
+                Top = args.Top ?? 25,
+                OrderBy = FirstSortProperty(args),
+                Descending = FirstSortDescending(args),
+                Search = _search,
+                Status = _status
+            };
+
+            var page = await VendorApi.GetListAsync(query);
+
+            _vendors = page.Items;
+            _totalCount = page.TotalCount;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private static string? FirstSortProperty(LoadDataArgs args) =>
+        args.Sorts?.FirstOrDefault()?.Property;
+
+    private static bool FirstSortDescending(LoadDataArgs args) =>
+        args.Sorts?.FirstOrDefault()?.SortOrder == SortOrder.Descending;
+
+    private async Task ReloadAsync()
+    {
+        if (_grid is not null)
+        {
+            await _grid.FirstPage(forceReload: true);
+        }
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _search = null;
+        _status = null;
+        await ReloadAsync();
+    }
+
+    private void OpenDetail(VendorListItemDto vendor) =>
+        Navigation.NavigateTo($"vendors/{vendor.Id}");
+
+    private async Task OpenCreateDialog()
+    {
+        var created = await DialogService.OpenAsync<VendorCreateDialog>(
+            "New vendor",
+            options: new DialogOptions
+            {
+                Width = "760px",
+                CloseDialogOnOverlayClick = false,
+                Draggable = true
+            });
+
+        if (created is true)
+        {
+            Notifications.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "Vendor created",
+                Detail = "Add a bank account, then activate the vendor.",
+                Duration = 5000
+            });
+
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ActivateAsync(VendorListItemDto vendor)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Activate {vendor.LegalName}? Active vendors can receive purchase orders.",
+            "Confirm activation",
+            new ConfirmOptions { OkButtonText = "Activate", CancelButtonText = "Cancel" });
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        var result = await VendorApi.ActivateAsync(vendor.Id);
+
+        if (result.Succeeded)
+        {
+            Notifications.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "Vendor activated",
+                Duration = 4000
+            });
+
+            await ReloadAsync();
+        }
+        else
+        {
+            Notifications.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Could not activate vendor",
+                Detail = result.ErrorMessage,
+                Duration = 8000
+            });
+        }
+    }
+
+    private static BadgeStyle BadgeStyleFor(VendorStatusDto status) => status switch
+    {
+        VendorStatusDto.Active => BadgeStyle.Success,
+        VendorStatusDto.Draft => BadgeStyle.Light,
+        VendorStatusDto.OnHold => BadgeStyle.Warning,
+        VendorStatusDto.Blocked => BadgeStyle.Danger,
+        _ => BadgeStyle.Light
+    };
+
+    private static string FormatMoney(decimal amount, string currency) =>
+        currency switch
+        {
+            "NGN" => $"₦{amount:N2}",
+            "GBP" => $"£{amount:N2}",
+            "EUR" => $"€{amount:N2}",
+            "USD" => $"${amount:N2}",
+            _ => $"{currency} {amount:N2}"
+        };
+}

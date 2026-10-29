@@ -1,0 +1,153 @@
+@inject IVendorApi VendorApi
+@inject DialogService DialogService
+
+<RadzenTemplateForm TItem="BankAccountFormModel"
+                    Data="@_model"
+                    Submit="@OnSubmitAsync">
+
+    <RadzenStack Gap="1rem">
+
+        <RadzenRow Gap="1rem">
+            <RadzenColumn Size="6">
+                <RadzenFormField Text="Bank" Style="width: 100%;">
+                    <ChildContent>
+                        <RadzenTextBox Name="BankName" @bind-Value="_model.BankName"
+                                       MaxLength="200" />
+                    </ChildContent>
+                    <Helper>
+                        <RadzenRequiredValidator Component="BankName"
+                                                 Text="The bank is required." />
+                    </Helper>
+                </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="6">
+                <RadzenFormField Text="Account name" Style="width: 100%;">
+                    <ChildContent>
+                        <RadzenTextBox Name="AccountName" @bind-Value="_model.AccountName"
+                                       MaxLength="200" />
+                    </ChildContent>
+                    <Helper>
+                        <RadzenRequiredValidator Component="AccountName"
+                                                 Text="The account name is required." />
+                    </Helper>
+                </RadzenFormField>
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenRow Gap="1rem">
+            <RadzenColumn Size="5">
+                <RadzenFormField Text="Account number" Style="width: 100%;">
+                    <ChildContent>
+                        <RadzenTextBox Name="AccountNumber"
+                                       @bind-Value="_model.AccountNumber"
+                                       MaxLength="50" />
+                    </ChildContent>
+                    <Helper>
+                        <RadzenRequiredValidator Component="AccountNumber"
+                                                 Text="The account number is required." />
+                    </Helper>
+                </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="4">
+                <RadzenFormField Text="Sort code / SWIFT (optional)" Style="width: 100%;">
+                    <RadzenTextBox @bind-Value="_model.SortCodeOrSwift" MaxLength="20" />
+                </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3">
+                <RadzenFormField Text="Currency" Style="width: 100%;">
+                    <RadzenDropDown @bind-Value="_model.Currency" Data="@_currencies" />
+                </RadzenFormField>
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenStack Orientation="Orientation.Horizontal"
+                     AlignItems="AlignItems.Center" Gap="0.5rem">
+            <RadzenCheckBox @bind-Value="_model.MakePrimary" Name="MakePrimary" />
+            <RadzenLabel Text="Make this the primary account for payments"
+                         Component="MakePrimary" />
+        </RadzenStack>
+
+        @if (_serverError is not null)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger"
+                         Variant="Variant.Flat"
+                         Shade="Shade.Lighter"
+                         AllowClose="false">
+                @_serverError
+            </RadzenAlert>
+        }
+
+        <RadzenStack Orientation="Orientation.Horizontal"
+                     JustifyContent="JustifyContent.End"
+                     Gap="0.5rem">
+            <RadzenButton Text="Cancel"
+                          ButtonStyle="ButtonStyle.Light"
+                          Variant="Variant.Flat"
+                          ButtonType="ButtonType.Button"
+                          Click="@(() => DialogService.Close(false))" />
+
+            <RadzenButton Text="Add account"
+                          ButtonType="ButtonType.Submit"
+                          ButtonStyle="ButtonStyle.Primary"
+                          IsBusy="@_isSaving"
+                          BusyText="Saving…" />
+        </RadzenStack>
+    </RadzenStack>
+</RadzenTemplateForm>
+
+@code {
+    [Parameter] public Guid VendorId { get; set; }
+
+    private readonly BankAccountFormModel _model = new();
+    private bool _isSaving;
+    private string? _serverError;
+
+    private readonly string[] _currencies = ["NGN", "USD", "GBP", "EUR", "ZAR", "GHS"];
+
+    private async Task OnSubmitAsync(BankAccountFormModel model)
+    {
+        _isSaving = true;
+        _serverError = null;
+
+        try
+        {
+            var result = await VendorApi.AddBankAccountAsync(new AddBankAccountRequest
+            {
+                VendorId = VendorId,
+                BankName = model.BankName!,
+                AccountName = model.AccountName!,
+                AccountNumber = model.AccountNumber!,
+                SortCodeOrSwift = model.SortCodeOrSwift,
+                Currency = model.Currency,
+                MakePrimary = model.MakePrimary
+            });
+
+            if (result.Succeeded)
+            {
+                DialogService.Close(true);
+            }
+            else
+            {
+                _serverError = result.ErrorMessage
+                    ?? "The bank account could not be added.";
+            }
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private sealed class BankAccountFormModel
+    {
+        public string? BankName { get; set; }
+        public string? AccountName { get; set; }
+        public string? AccountNumber { get; set; }
+        public string? SortCodeOrSwift { get; set; }
+        public string Currency { get; set; } = "NGN";
+        public bool MakePrimary { get; set; } = true;
+    }
+}

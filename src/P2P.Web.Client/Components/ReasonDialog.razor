@@ -1,0 +1,23 @@
+@inject DialogService DialogService
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.Body1">@Prompt</RadzenText>
+
+    <RadzenTextArea @bind-Value="_reason" Rows="4" Style="width: 100%;"
+                    Placeholder="Enter a reason…" />
+
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 JustifyContent="JustifyContent.End" Gap="0.5rem">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light"
+                      Click="@(() => DialogService.Close(null))" />
+        <RadzenButton Text="Confirm" ButtonStyle="ButtonStyle.Primary"
+                      Disabled="@string.IsNullOrWhiteSpace(_reason)"
+                      Click="@(() => DialogService.Close(_reason))" />
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    [Parameter] public string Prompt { get; set; } = "Please give a reason.";
+
+    private string? _reason;
+}

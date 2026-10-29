@@ -1,0 +1,107 @@
+@page "/receipts/{ReceiptId:guid}"
+@attribute [Authorize(Policy = Policies.CanRecordReceipts)]
+@inject IGoodsReceiptApi ReceiptApi
+
+<PageTitle>@(_receipt?.Number ?? "Goods receipt")</PageTitle>
+
+@if (_isLoading)
+{
+    <RadzenStack Gap="1rem">
+        <RadzenSkeleton Height="2rem" Width="40%" />
+        <RadzenSkeleton Height="10rem" />
+    </RadzenStack>
+}
+else if (_receipt is null)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+        That goods receipt could not be found.
+    </RadzenAlert>
+}
+else
+{
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 AlignItems="AlignItems.Center"
+                 JustifyContent="JustifyContent.SpaceBetween"
+                 Class="rz-mb-4">
+        <RadzenStack Gap="0.25rem">
+            <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-0">@_receipt.Number</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
+                Against @_receipt.PurchaseOrderNumber · @_receipt.VendorName
+            </RadzenText>
+        </RadzenStack>
+
+        <RadzenButton Text="Record another receipt" Icon="add_box"
+                      ButtonStyle="ButtonStyle.Light"
+                      Click="@(() => Navigation.NavigateTo("receipts/new"))" />
+    </RadzenStack>
+
+    @if (_receipt.IsReversed)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning"
+                     Variant="Variant.Flat"
+                     AllowClose="false"
+                     Class="rz-mb-3">
+            <strong>Reversed:</strong> @_receipt.ReversalReason
+        </RadzenAlert>
+    }
+
+    <RadzenCard Class="rz-mb-3">
+        <RadzenRow Gap="2rem">
+            <RadzenColumn Size="4">
+                <LabelledValue Label="Received on"
+                               Value="@_receipt.ReceivedOn.ToString("d MMM yyyy")" />
+            </RadzenColumn>
+            <RadzenColumn Size="4">
+                <LabelledValue Label="Delivery note"
+                               Value="@(_receipt.DeliveryNoteReference ?? "—")" />
+            </RadzenColumn>
+            <RadzenColumn Size="4">
+                <LabelledValue Label="Carrier" Value="@(_receipt.Carrier ?? "—")" />
+            </RadzenColumn>
+        </RadzenRow>
+    </RadzenCard>
+
+    <RadzenDataGrid TItem="GoodsReceiptLineDto" Data="@_receipt.Lines"
+                    AllowPaging="false" GridLines="DataGridGridLines.Horizontal">
+        <Columns>
+            <RadzenDataGridColumn TItem="GoodsReceiptLineDto"
+                                  Property="LineNumber" Title="#" Width="60px" />
+            <RadzenDataGridColumn TItem="GoodsReceiptLineDto"
+                                  Property="Description" Title="Description"
+                                  MinWidth="200px" />
+            <RadzenDataGridColumn TItem="GoodsReceiptLineDto"
+                                  Property="QuantityAccepted" Title="Accepted"
+                                  Width="120px" FormatString="{0:N2}"
+                                  TextAlign="TextAlign.Right" />
+            <RadzenDataGridColumn TItem="GoodsReceiptLineDto"
+                                  Property="QuantityRejected" Title="Rejected"
+                                  Width="120px" FormatString="{0:N2}"
+                                  TextAlign="TextAlign.Right" />
+            <RadzenDataGridColumn TItem="GoodsReceiptLineDto"
+                                  Property="RejectionReason" Title="Rejection reason" />
+        </Columns>
+    </RadzenDataGrid>
+}
+
+@code {
+    [Parameter] public Guid ReceiptId { get; set; }
+
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    private GoodsReceiptDetailDto? _receipt;
+    private bool _isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            _receipt = await ReceiptApi.GetByIdAsync(ReceiptId);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+}

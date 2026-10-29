@@ -1,0 +1,7 @@
+[*.cs]
+# Test names use underscores for readability (Method_should_do_something).
+dotnet_diagnostic.CA1707.severity = none
+
+# Test fixtures implement IDisposable for per-test cleanup only; they never
+# have finalizers, so GC.SuppressFinalize adds nothing.
+dotnet_diagnostic.CA1816.severity = none
